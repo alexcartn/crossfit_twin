@@ -15,6 +15,7 @@ from typing import Dict, List, Any
 
 # Import CrossFit Digital Twin library
 from crossfit_twin import Athlete, WOD, simulate
+from crossfit_twin.athlete import ContextParams, DayState
 from crossfit_twin.workout import FamousWODs, Exercise, Round
 from crossfit_twin.strategy import StrategyFactory
 from crossfit_twin.utils import (
@@ -38,6 +39,10 @@ def initialize_session_state():
         st.session_state.current_athlete = None
     if 'current_workout' not in st.session_state:
         st.session_state.current_workout = None
+    if 'current_context' not in st.session_state:
+        st.session_state.current_context = ContextParams()
+    if 'current_day_state' not in st.session_state:
+        st.session_state.current_day_state = DayState()
     if 'simulation_results' not in st.session_state:
         st.session_state.simulation_results = []
     if 'experiment_results' not in st.session_state:
@@ -45,117 +50,224 @@ def initialize_session_state():
 
 
 def create_athlete_form():
-    """Create athlete configuration form."""
-    st.subheader("👤 Athlete Configuration")
+    """Create athlete configuration form with concrete inputs."""
+    st.subheader("👤 Athlete Profile")
     
-    with st.form("athlete_form"):
+    # A. Intrinsic Profile
+    with st.expander("🧍 Profil intrinsèque", expanded=True):
+        st.markdown("**Paramètres stables de l'athlète**")
+        
+        with st.form("intrinsic_form"):
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                name = st.text_input("Nom de l'athlète", value="Mon Athlète")
+                weight_kg = st.number_input("Poids (kg)", 40.0, 150.0, 78.0, 0.1)
+                
+                st.write("**Tests de répétitions chronométrées:**")
+                t_thr_10 = st.number_input("10 Thrusters @ 20kg (s)", 10.0, 120.0, 20.0, 0.1)
+                t_pu_10 = st.number_input("10 Kipping Pull-ups (s)", 5.0, 120.0, 15.0, 0.1)
+                t_bur_15 = st.number_input("15 Burpees (s)", 10.0, 300.0, 45.0, 0.1)
+                t_wb_15 = st.number_input("15 Wall-balls @ 9kg (s)", 10.0, 300.0, 35.0, 0.1)
+            
+            with col2:
+                experience = st.selectbox(
+                    "Niveau d'expérience",
+                    ["beginner", "intermediate", "advanced", "elite"],
+                    index=1
+                )
+                
+                st.write("**Cardio de référence:**")
+                row_2k = st.text_input("2k Row (mm:ss)", "7:30")
+                row_5k = st.text_input("5k Row (mm:ss)", "19:30")
+                
+                st.write("**1RM (ou estimés):**")
+                bs_1rm = st.number_input("Back Squat 1RM (kg)", 40.0, 300.0, 150.0, 1.0)
+                cj_1rm = st.number_input("Clean & Jerk 1RM (kg)", 30.0, 250.0, 110.0, 1.0)
+                sn_1rm = st.number_input("Snatch 1RM (kg)", 20.0, 200.0, 85.0, 1.0)
+                
+                # Recovery rate as simple slider for now
+                recovery_rate = st.slider("Récupération générale", 0, 100, 70, 
+                                        help="Capacité générale de récupération (0-100)")
+            
+            submitted = st.form_submit_button("Créer l'athlète")
+            
+            if submitted:
+                try:
+                    # Create athlete from concrete inputs
+                    athlete = Athlete.from_concrete_inputs(
+                        name=name,
+                        weight_kg=weight_kg,
+                        row_2k_time=row_2k,
+                        row_5k_time=row_5k,
+                        t_thr_10=t_thr_10,
+                        t_pu_10=t_pu_10,
+                        t_bur_15=t_bur_15,
+                        t_wb_15=t_wb_15,
+                        bs_1rm=bs_1rm,
+                        cj_1rm=cj_1rm,
+                        sn_1rm=sn_1rm,
+                        experience_level=experience,
+                        recovery_rate=recovery_rate
+                    )
+                    
+                    st.session_state.current_athlete = athlete
+                    st.success(f"✅ Athlète '{name}' créé avec succès!")
+                    
+                    # Show calculated parameters
+                    st.info(f"**Paramètres calculés:** Force: {athlete.strength:.0f}/100, "
+                           f"Endurance: {athlete.endurance:.0f}/100, "
+                           f"Résistance fatigue: {athlete.fatigue_resistance:.0f}/100")
+                    
+                    st.rerun()
+                    
+                except Exception as e:
+                    st.error(f"Erreur lors de la création de l'athlète: {e}")
+
+
+def create_context_form():
+    """Create environmental context form."""
+    with st.expander("🌍 Contexte environnemental", expanded=False):
+        st.markdown("**Conditions d'entraînement/compétition**")
+        
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            temp = st.number_input("Température (°C)", -10.0, 45.0, 22.0, 0.1,
+                                 help="Température ambiante")
+        
+        with col2:
+            humidity = st.number_input("Humidité (%)", 0.0, 100.0, 50.0, 1.0,
+                                     help="Humidité relative")
+        
+        with col3:
+            altitude = st.number_input("Altitude (m)", 0.0, 4000.0, 0.0, 1.0,
+                                     help="Altitude au-dessus du niveau de la mer")
+        
+        # Update context in session state
+        st.session_state.current_context = ContextParams(
+            temperature_c=temp,
+            humidity_pct=humidity,
+            altitude_m=altitude
+        )
+
+
+def create_day_state_form():
+    """Create daily state form."""
+    with st.expander("📅 État du jour", expanded=False):
+        st.markdown("**Forme physique du jour**")
+        
         col1, col2 = st.columns(2)
         
         with col1:
-            name = st.text_input("Athlete Name", value="My Athlete")
-            strength = st.slider("Strength", 0, 100, 70, help="Overall strength level (0-100)")
-            endurance = st.slider("Endurance", 0, 100, 65, help="Cardiovascular endurance (0-100)")
-            weight_kg = st.number_input("Weight (kg)", 40, 150, 75, help="Body weight in kilograms")
+            sleep_h = st.number_input("Sommeil dernière nuit (h)", 0.0, 12.0, 7.5, 0.1,
+                                    help="Heures de sommeil")
+            sleep_quality = st.slider("Qualité du sommeil", 1, 5, 3,
+                                    help="1=Très mauvais, 5=Excellent")
         
         with col2:
-            experience = st.selectbox(
-                "Experience Level",
-                ["beginner", "intermediate", "advanced", "elite"],
-                index=1,
-                help="Training experience level"
-            )
-            fatigue_resistance = st.slider(
-                "Fatigue Resistance", 0, 100, 60,
-                help="Resistance to fatigue accumulation (0-100)"
-            )
-            recovery_rate = st.slider(
-                "Recovery Rate", 0, 100, 70,
-                help="Rate of recovery during rest periods (0-100)"
-            )
+            water_l = st.number_input("Eau bue depuis réveil (L)", 0.0, 8.0, 2.0, 0.1,
+                                    help="Litres d'eau consommés")
+            
+            # Use athlete weight as default if available
+            default_weight = st.session_state.current_athlete.weight_kg if st.session_state.current_athlete else 75.0
+            mass_day = st.number_input("Poids du jour (kg)", 40.0, 150.0, default_weight, 0.1,
+                                     help="Poids actuel")
         
-        # Advanced options
-        with st.expander("Advanced Options"):
-            st.write("**Custom Max Lifts (kg)**")
-            col1, col2, col3 = st.columns(3)
-            
-            with col1:
-                back_squat = st.number_input("Back Squat", 0, 300, 0, help="Leave 0 for auto-calculation")
-                deadlift = st.number_input("Deadlift", 0, 400, 0, help="Leave 0 for auto-calculation")
-            
-            with col2:
-                clean = st.number_input("Clean", 0, 200, 0, help="Leave 0 for auto-calculation")
-                snatch = st.number_input("Snatch", 0, 200, 0, help="Leave 0 for auto-calculation")
-            
-            with col3:
-                thruster = st.number_input("Thruster", 0, 150, 0, help="Leave 0 for auto-calculation")
-                overhead_press = st.number_input("Overhead Press", 0, 150, 0, help="Leave 0 for auto-calculation")
-        
-        submitted = st.form_submit_button("Create Athlete")
-        
-        if submitted:
-            # Create custom max lifts if specified
-            max_lifts = {}
-            if back_squat > 0:
-                max_lifts["back-squat"] = back_squat
-            if deadlift > 0:
-                max_lifts["deadlift"] = deadlift
-            if clean > 0:
-                max_lifts["clean"] = clean
-            if snatch > 0:
-                max_lifts["snatch"] = snatch
-            if thruster > 0:
-                max_lifts["thruster"] = thruster
-            if overhead_press > 0:
-                max_lifts["overhead-press"] = overhead_press
-            
-            # Create athlete
-            athlete = Athlete(
-                name=name,
-                strength=strength,
-                endurance=endurance,
-                fatigue_resistance=fatigue_resistance,
-                recovery_rate=recovery_rate,
-                weight_kg=weight_kg,
-                experience_level=experience,
-                max_lifts=max_lifts if max_lifts else {}
-            )
-            
-            st.session_state.current_athlete = athlete
-            st.success(f"✅ Athlete '{name}' created successfully!")
-            st.rerun()
+        # Update day state in session state
+        st.session_state.current_day_state = DayState(
+            sleep_h=sleep_h,
+            sleep_quality=sleep_quality,
+            water_l=water_l,
+            body_mass_kg=mass_day
+        )
 
 
 def display_athlete_stats():
-    """Display current athlete statistics."""
+    """Display current athlete statistics and environmental factors."""
     if st.session_state.current_athlete:
         athlete = st.session_state.current_athlete
+        ctx = st.session_state.current_context
+        day = st.session_state.current_day_state
         
-        st.subheader(f"📊 {athlete.name} - Stats")
+        st.subheader(f"📊 {athlete.name} - Résumé complet")
         
+        # Derived stats (calculated from concrete inputs)
         col1, col2, col3, col4 = st.columns(4)
         
         with col1:
-            st.metric("Strength", f"{athlete.strength:.0f}/100")
-            st.metric("Weight", f"{athlete.weight_kg:.0f} kg")
+            st.metric("Force", f"{athlete.strength:.0f}/100", help="Calculé depuis les 1RM")
+            st.metric("Poids", f"{athlete.weight_kg:.0f} kg")
         
         with col2:
-            st.metric("Endurance", f"{athlete.endurance:.0f}/100")
-            st.metric("Experience", athlete.experience_level.title())
+            st.metric("Endurance", f"{athlete.endurance:.0f}/100", help="Calculé depuis 2k/5k row")
+            st.metric("Expérience", athlete.experience_level.title())
         
         with col3:
-            st.metric("Fatigue Resistance", f"{athlete.fatigue_resistance:.0f}/100")
+            st.metric("Résistance fatigue", f"{athlete.fatigue_resistance:.0f}/100", help="Calculé depuis W' critique")
             
         with col4:
-            st.metric("Recovery Rate", f"{athlete.recovery_rate:.0f}/100")
+            st.metric("Récupération", f"{athlete.recovery_rate:.0f}/100", help="Calculé depuis profil athlète")
         
-        # Display max lifts
-        if athlete.max_lifts:
-            st.write("**Max Lifts:**")
-            lifts_df = pd.DataFrame([
-                {"Exercise": exercise.replace("-", " ").title(), "Weight (kg)": weight}
-                for exercise, weight in athlete.max_lifts.items()
-            ])
-            st.dataframe(lifts_df, hide_index=True)
+        # Environmental summary with impact indicators
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.write("**🌍 Contexte actuel:**")
+            st.write(f"🌡️ {ctx.temperature_c:.1f}°C, 💧 {ctx.humidity_pct:.0f}% HR, ⛰️ {ctx.altitude_m:.0f}m")
+            
+            # Show environmental impact
+            from crossfit_twin.athlete import hot_humid_recovery_scale, cardio_drift_scale
+            recovery_impact = hot_humid_recovery_scale(ctx.temperature_c, ctx.humidity_pct)
+            cardio_impact = cardio_drift_scale(ctx.temperature_c, ctx.humidity_pct, ctx.altitude_m)
+            
+            impact_color = "🟢" if recovery_impact > 0.9 else "🟡" if recovery_impact > 0.8 else "🔴"
+            st.write(f"{impact_color} Impact récupération: {recovery_impact:.1%}")
+            
+            cardio_color = "🟢" if cardio_impact < 1.1 else "🟡" if cardio_impact < 1.2 else "🔴"
+            st.write(f"{cardio_color} Charge cardio: {cardio_impact:.1%}")
+        
+        with col2:
+            st.write("**📅 État du jour:**")
+            st.write(f"😴 {day.sleep_h:.1f}h (qualité: {day.sleep_quality}/5)")
+            st.write(f"💧 {day.water_l:.1f}L, ⚖️ {day.body_mass_kg:.1f}kg")
+            
+            # Show daily state impact
+            from crossfit_twin.athlete import freshness_factor, hydration_factor
+            fresh_impact = freshness_factor(day.sleep_h, day.sleep_quality)
+            hydration_impact = hydration_factor(day.water_l, day.body_mass_kg, ctx.temperature_c)
+            
+            fresh_color = "🟢" if fresh_impact > 0.95 else "🟡" if fresh_impact > 0.85 else "🔴"
+            st.write(f"{fresh_color} Fraîcheur: {fresh_impact:.1%}")
+            
+            hydro_color = "🟢" if hydration_impact > 0.95 else "🟡" if hydration_impact > 0.85 else "🔴"
+            st.write(f"{hydro_color} Hydratation: {hydration_impact:.1%}")
+        
+        # Performance indicators with context
+        with st.expander("📈 Indicateurs de performance", expanded=False):
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                st.write("**💪 1RM principaux:**")
+                key_lifts = ["back-squat", "clean", "snatch", "thruster"]
+                for lift in key_lifts:
+                    if lift in athlete.max_lifts:
+                        ratio = athlete.max_lifts[lift] / athlete.weight_kg
+                        st.write(f"• {lift.replace('-', ' ').title()}: {athlete.max_lifts[lift]:.0f}kg ({ratio:.1f}x BW)")
+            
+            with col2:
+                st.write("**⏱️ Temps de base (par rep):**")
+                key_exercises = ["thruster", "pull-up", "burpee", "wall-ball"]
+                for ex in key_exercises:
+                    if ex in athlete.base_pace:
+                        st.write(f"• {ex.replace('-', ' ').title()}: {athlete.base_pace[ex]:.1f}s")
+                        
+            # Show row performance
+            st.write("**🚣 Performances cardio:**")
+            if hasattr(athlete, '_row_2k_time') and athlete._row_2k_time:
+                st.write(f"• 2k Row: {athlete._row_2k_time}")
+            if hasattr(athlete, '_row_5k_time') and athlete._row_5k_time:
+                st.write(f"• 5k Row: {athlete._row_5k_time}")
 
 
 def create_workout_selection():
@@ -336,7 +448,7 @@ def create_strategy_selection():
 
 
 def run_simulation():
-    """Run workout simulation."""
+    """Run workout simulation with context and day state."""
     if not st.session_state.current_athlete:
         st.error("Please create an athlete first!")
         return
@@ -347,11 +459,30 @@ def run_simulation():
     
     strategy = create_strategy_selection()
     
+    # Show performance preview with current conditions
+    st.write("**🎯 Aperçu des conditions actuelles:**")
+    ctx = st.session_state.current_context
+    day = st.session_state.current_day_state
+    
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.write(f"🌡️ {ctx.temperature_c:.1f}°C")
+    with col2:
+        st.write(f"😴 {day.sleep_h:.1f}h sommeil")
+    with col3:
+        st.write(f"💧 {day.water_l:.1f}L hydratation")
+    
     if st.button("🚀 Run Simulation", type="primary"):
         with st.spinner("Running simulation..."):
+            # Create a copy of the athlete with current context/day state
+            athlete_copy = st.session_state.current_athlete.clone(f"{st.session_state.current_athlete.name}_sim")
+            
+            # Set context and day state for simulation
+            athlete_copy.set_simulation_context(ctx, day)
+            
             result = simulate(
                 st.session_state.current_workout,
-                st.session_state.current_athlete,
+                athlete_copy,
                 strategy,
                 verbose=False
             )
