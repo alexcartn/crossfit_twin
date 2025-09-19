@@ -1,0 +1,68 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "crossfit-twin"
+version = "0.1.0"
+description = "A Python library for simulating CrossFit athlete performance and optimizing pacing strategies"
+authors = [
+    {name = "CrossFit Twin Team"}
+]
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.8"
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Topic :: Scientific/Engineering",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+dependencies = [
+    "numpy>=1.20.0",
+    "pandas>=1.3.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=6.0",
+    "pytest-cov>=2.0",
+    "black>=21.0",
+    "flake8>=3.8",
+    "mypy>=0.800",
+]
+streamlit = [
+    "streamlit>=1.0.0",
+    "plotly>=5.0.0",
+]
+
+[project.urls]
+"Homepage" = "https://github.com/yourusername/crossfit-twin"
+"Bug Reports" = "https://github.com/yourusername/crossfit-twin/issues"
+"Source" = "https://github.com/yourusername/crossfit-twin"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["crossfit_twin*"]
+
+[tool.black]
+line-length = 88
+target-version = ['py38']
+
+[tool.mypy]
+python_version = "3.8"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "--cov=crossfit_twin --cov-report=html --cov-report=term-missing"
