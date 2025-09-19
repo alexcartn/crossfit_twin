@@ -127,60 +127,145 @@ def create_athlete_form():
 
 def create_context_form():
     """Create environmental context form."""
-    with st.expander("🌍 Contexte environnemental", expanded=False):
-        st.markdown("**Conditions d'entraînement/compétition**")
-        
-        col1, col2, col3 = st.columns(3)
-        
-        with col1:
-            temp = st.number_input("Température (°C)", -10.0, 45.0, 22.0, 0.1,
-                                 help="Température ambiante")
-        
-        with col2:
-            humidity = st.number_input("Humidité (%)", 0.0, 100.0, 50.0, 1.0,
-                                     help="Humidité relative")
-        
-        with col3:
-            altitude = st.number_input("Altitude (m)", 0.0, 4000.0, 0.0, 1.0,
-                                     help="Altitude au-dessus du niveau de la mer")
-        
-        # Update context in session state
-        st.session_state.current_context = ContextParams(
-            temperature_c=temp,
-            humidity_pct=humidity,
-            altitude_m=altitude
+    st.subheader("🌍 Contexte environnemental")
+    st.markdown("**Conditions d'entraînement/compétition**")
+    
+    # Get current values from session state for persistence
+    current_ctx = st.session_state.current_context
+    
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        temp = st.number_input(
+            "Température (°C)", 
+            min_value=-10.0, 
+            max_value=45.0, 
+            value=current_ctx.temperature_c,
+            step=0.1,
+            help="Température ambiante",
+            key="temp_input"
         )
+    
+    with col2:
+        humidity = st.number_input(
+            "Humidité (%)", 
+            min_value=0.0, 
+            max_value=100.0, 
+            value=current_ctx.humidity_pct,
+            step=1.0,
+            help="Humidité relative",
+            key="humidity_input"
+        )
+    
+    with col3:
+        altitude = st.number_input(
+            "Altitude (m)", 
+            min_value=0.0, 
+            max_value=4000.0, 
+            value=current_ctx.altitude_m,
+            step=1.0,
+            help="Altitude au-dessus du niveau de la mer",
+            key="altitude_input"
+        )
+    
+    # Update context in session state whenever inputs change
+    st.session_state.current_context = ContextParams(
+        temperature_c=temp,
+        humidity_pct=humidity,
+        altitude_m=altitude
+    )
+    
+    # Show environmental impact indicators
+    from crossfit_twin.athlete import hot_humid_recovery_scale, cardio_drift_scale
+    recovery_impact = hot_humid_recovery_scale(temp, humidity)
+    cardio_impact = cardio_drift_scale(temp, humidity, altitude)
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        impact_color = "🟢" if recovery_impact > 0.9 else "🟡" if recovery_impact > 0.8 else "🔴"
+        st.write(f"{impact_color} Impact récupération: {recovery_impact:.1%}")
+    with col2:
+        cardio_color = "🟢" if cardio_impact < 1.1 else "🟡" if cardio_impact < 1.2 else "🔴"
+        st.write(f"{cardio_color} Charge cardio: {cardio_impact:.1%}")
 
 
 def create_day_state_form():
     """Create daily state form."""
-    with st.expander("📅 État du jour", expanded=False):
-        st.markdown("**Forme physique du jour**")
-        
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            sleep_h = st.number_input("Sommeil dernière nuit (h)", 0.0, 12.0, 7.5, 0.1,
-                                    help="Heures de sommeil")
-            sleep_quality = st.slider("Qualité du sommeil", 1, 5, 3,
-                                    help="1=Très mauvais, 5=Excellent")
-        
-        with col2:
-            water_l = st.number_input("Eau bue depuis réveil (L)", 0.0, 8.0, 2.0, 0.1,
-                                    help="Litres d'eau consommés")
-            
-            # Use athlete weight as default if available
-            default_weight = st.session_state.current_athlete.weight_kg if st.session_state.current_athlete else 75.0
-            mass_day = st.number_input("Poids du jour (kg)", 40.0, 150.0, default_weight, 0.1,
-                                     help="Poids actuel")
-        
-        # Update day state in session state
-        st.session_state.current_day_state = DayState(
-            sleep_h=sleep_h,
-            sleep_quality=sleep_quality,
-            water_l=water_l,
-            body_mass_kg=mass_day
+    st.subheader("📅 État du jour")
+    st.markdown("**Forme physique du jour**")
+    
+    # Get current values from session state for persistence
+    current_day = st.session_state.current_day_state
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        sleep_h = st.number_input(
+            "Sommeil dernière nuit (h)", 
+            min_value=0.0, 
+            max_value=12.0, 
+            value=current_day.sleep_h,
+            step=0.1,
+            help="Heures de sommeil",
+            key="sleep_h_input"
         )
+        sleep_quality = st.slider(
+            "Qualité du sommeil", 
+            min_value=1, 
+            max_value=5, 
+            value=current_day.sleep_quality,
+            help="1=Très mauvais, 5=Excellent",
+            key="sleep_quality_input"
+        )
+    
+    with col2:
+        water_l = st.number_input(
+            "Eau bue depuis réveil (L)", 
+            min_value=0.0, 
+            max_value=8.0, 
+            value=current_day.water_l,
+            step=0.1,
+            help="Litres d'eau consommés",
+            key="water_input"
+        )
+        
+        # Use athlete weight as default if available, otherwise use current day state
+        default_weight = (
+            st.session_state.current_athlete.weight_kg 
+            if st.session_state.current_athlete 
+            else current_day.body_mass_kg
+        )
+        mass_day = st.number_input(
+            "Poids du jour (kg)", 
+            min_value=40.0, 
+            max_value=150.0, 
+            value=default_weight,
+            step=0.1,
+            help="Poids actuel",
+            key="mass_day_input"
+        )
+    
+    # Update day state in session state whenever inputs change
+    st.session_state.current_day_state = DayState(
+        sleep_h=sleep_h,
+        sleep_quality=sleep_quality,
+        water_l=water_l,
+        body_mass_kg=mass_day
+    )
+    
+    # Show daily state impact indicators
+    from crossfit_twin.athlete import freshness_factor, hydration_factor
+    current_ctx = st.session_state.current_context
+    fresh_impact = freshness_factor(sleep_h, sleep_quality)
+    hydration_impact = hydration_factor(water_l, mass_day, current_ctx.temperature_c)
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        fresh_color = "🟢" if fresh_impact > 0.95 else "🟡" if fresh_impact > 0.85 else "🔴"
+        st.write(f"{fresh_color} Fraîcheur: {fresh_impact:.1%}")
+    with col2:
+        hydro_color = "🟢" if hydration_impact > 0.95 else "🟡" if hydration_impact > 0.85 else "🔴"
+        st.write(f"{hydro_color} Hydratation: {hydration_impact:.1%}")
 
 
 def display_athlete_stats():
@@ -209,39 +294,10 @@ def display_athlete_stats():
         with col4:
             st.metric("Récupération", f"{athlete.recovery_rate:.0f}/100", help="Calculé depuis profil athlète")
         
-        # Environmental summary with impact indicators
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            st.write("**🌍 Contexte actuel:**")
-            st.write(f"🌡️ {ctx.temperature_c:.1f}°C, 💧 {ctx.humidity_pct:.0f}% HR, ⛰️ {ctx.altitude_m:.0f}m")
-            
-            # Show environmental impact
-            from crossfit_twin.athlete import hot_humid_recovery_scale, cardio_drift_scale
-            recovery_impact = hot_humid_recovery_scale(ctx.temperature_c, ctx.humidity_pct)
-            cardio_impact = cardio_drift_scale(ctx.temperature_c, ctx.humidity_pct, ctx.altitude_m)
-            
-            impact_color = "🟢" if recovery_impact > 0.9 else "🟡" if recovery_impact > 0.8 else "🔴"
-            st.write(f"{impact_color} Impact récupération: {recovery_impact:.1%}")
-            
-            cardio_color = "🟢" if cardio_impact < 1.1 else "🟡" if cardio_impact < 1.2 else "🔴"
-            st.write(f"{cardio_color} Charge cardio: {cardio_impact:.1%}")
-        
-        with col2:
-            st.write("**📅 État du jour:**")
-            st.write(f"😴 {day.sleep_h:.1f}h (qualité: {day.sleep_quality}/5)")
-            st.write(f"💧 {day.water_l:.1f}L, ⚖️ {day.body_mass_kg:.1f}kg")
-            
-            # Show daily state impact
-            from crossfit_twin.athlete import freshness_factor, hydration_factor
-            fresh_impact = freshness_factor(day.sleep_h, day.sleep_quality)
-            hydration_impact = hydration_factor(day.water_l, day.body_mass_kg, ctx.temperature_c)
-            
-            fresh_color = "🟢" if fresh_impact > 0.95 else "🟡" if fresh_impact > 0.85 else "🔴"
-            st.write(f"{fresh_color} Fraîcheur: {fresh_impact:.1%}")
-            
-            hydro_color = "🟢" if hydration_impact > 0.95 else "🟡" if hydration_impact > 0.85 else "🔴"
-            st.write(f"{hydro_color} Hydratation: {hydration_impact:.1%}")
+        # Current environmental and daily summary
+        st.write("**🌍 Conditions actuelles:**")
+        st.write(f"🌡️ {ctx.temperature_c:.1f}°C, 💧 {ctx.humidity_pct:.0f}% HR, ⛰️ {ctx.altitude_m:.0f}m")
+        st.write(f"😴 {day.sleep_h:.1f}h sommeil (qualité: {day.sleep_quality}/5), 💧 {day.water_l:.1f}L, ⚖️ {day.body_mass_kg:.1f}kg")
         
         # Performance indicators with context
         with st.expander("📈 Indicateurs de performance", expanded=False):
@@ -475,7 +531,7 @@ def run_simulation():
     if st.button("🚀 Run Simulation", type="primary"):
         with st.spinner("Running simulation..."):
             # Create a copy of the athlete with current context/day state
-            athlete_copy = st.session_state.current_athlete.clone(f"{st.session_state.current_athlete.name}_sim")
+            athlete_copy = st.session_state.current_athlete.clone(name=f"{st.session_state.current_athlete.name}_sim")
             
             # Set context and day state for simulation
             athlete_copy.set_simulation_context(ctx, day)
@@ -727,6 +783,7 @@ def main():
     tab1, tab2, tab3, tab4 = st.tabs(["🏃 Simulation", "🧪 Experiments", "📈 Results", "ℹ️ About"])
     
     with tab1:
+        # Three separate components in their own sections
         col1, col2 = st.columns([1, 1])
         
         with col1:
@@ -737,6 +794,17 @@ def main():
             create_workout_selection()
             display_current_workout()
         
+        st.divider()
+        
+        # Environmental context and daily state as separate sections
+        col1, col2 = st.columns([1, 1])
+        
+        with col1:
+            create_context_form()
+        
+        with col2:
+            create_day_state_form()
+            
         st.divider()
         run_simulation()
     

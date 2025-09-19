@@ -1,0 +1,170 @@
+Super clair. Voici un **énoncé de mise à jour** qui colle à ton code actuel et te donne une UI Streamlit en **3 catégories** (Intrinsèque / Contexte / État du jour), + le pont “entrées concrètes → paramètres du modèle”.
+
+---
+
+# Énoncé de mise à jour — Digital Twin CrossFit
+
+## Objectif
+
+Rendre le modèle exploitable par l’athlète avec des **entrées concrètes**, tout en gardant ton moteur compatible avec l’existant :
+
+* Côté code actuel, l’athlete a `strength/endurance/fatigue_resistance/recovery_rate` (0–100), `weight_kg`, des `max_lifts` et des `base_pace`, avec les méthodes `get_rep_time()`, `get_fatigue_per_rep()` et `recover()` utilisées par le simulateur.&#x20;
+* Le simulateur appelle ces méthodes lors des reps, des pauses et des transitions.&#x20;
+
+## Principes (sans casser l’existant)
+
+1. **Séparer les sources d’influence** en 3 couches :
+
+   * **Intrinsèque (profil stable)** → remplit `base_pace`, `max_lifts`, `endurance`, `strength`, `fatigue_resistance`, `recovery_rate`.
+   * **Contexte (T/HR/altitude)** → modulateurs sur vitesses de base, récupération et dérive cardio.
+   * **État du jour (sommeil, hydratation, poids du jour)** → multiplicateurs doux sur récupération et vitesses.
+
+2. **Adapter sans réécrire** : ajouter des *dataclasses* “contexte” et “jour J”, puis les prendre en compte **dans `get_rep_time()` et `recover()`** (paramètres optionnels ou attributs de l’athlète), pour que `WorkoutSimulator` n’ait pas à changer son API publique.
+
+---
+
+## Changements minimum côté code
+
+### 1) Ajouter deux dataclasses
+
+```python
+@dataclass
+class ContextParams:
+    temperature_c: float = 20.0
+    humidity_pct: float = 50.0
+    altitude_m: float = 0.0
+
+@dataclass
+class DayState:
+    sleep_h: float = 7.5
+    sleep_quality: int = 3    # 1–5
+    water_l: float = 2.0
+    body_mass_kg: float = 75.0
+```
+
+### 2) Fonctions de mapping “entrées → multiplicateurs”
+
+```python
+def freshness_factor(sleep_h: float, qual: int) -> float:
+    return max(0.60, min(1.05, 0.8 + 0.03*(sleep_h-7.5) + 0.02*(qual-3)))
+
+def hydration_factor(water_l: float, mass_kg: float, temp_c: float) -> float:
+    target = 0.033*mass_kg + (0.25 if temp_c>24 else 0.0)
+    ratio = water_l / max(0.5, target)
+    return max(0.70, min(1.10, ratio))
+
+def u_shape_cycle_multiplier(temp_c: float, t0: float=20.0, a: float=8e-4) -> float:
+    d = temp_c - t0
+    return 1.0 + a*(d*d)
+
+def hot_humid_recovery_scale(temp_c: float, hum: float, t_lin: float=22.0, k: float=0.012, h_amp: float=0.4) -> float:
+    hot = max(0.0, temp_c - t_lin)
+    penalty = (k*hot)*(1 + h_amp*hum/100.0)
+    return max(0.6, 1.0 - penalty)     # 0.6–1.0
+
+def cardio_drift_scale(temp_c: float, hum: float, alt_m: float, t_lin: float=22.0, k: float=0.015, h_amp: float=0.4) -> float:
+    hot = max(0.0, temp_c - t_lin)
+    scale = 1.0 + (k*hot)*(1 + h_amp*hum/100.0)
+    if alt_m > 700:
+        steps = (alt_m - 700)/300.0
+        scale *= (1.0 + 0.06*max(0.0, steps))
+    return scale
+```
+
+### 3) Étendre légèrement `Athlete.get_rep_time()` et `recover()`
+
+Ajoute deux arguments **optionnels** `ctx: ContextParams=None` et `day: DayState=None`. Par défaut, comportement inchangé.
+
+* Dans `get_rep_time()` :
+
+  * multiplier `base_time` par `u_shape_cycle_multiplier(ctx.temperature_c)` si `ctx` est fourni,
+  * appliquer un **bonus léger** si `day` → `base_time /= (0.98 + 0.02*freshness_factor(...))`.
+  * tu peux intégrer `cardio_drift_scale()` en gonflant la composante “fatigue” (ex.: `fatigue_factor *= cardio_scale`).
+
+* Dans `recover()` :
+
+  * multiplier `recovery_rate_per_second` par `freshness_factor(...) * hydration_factor(...) * hot_humid_recovery_scale(...)` lorsque `ctx/day` sont présents.
+
+> Ainsi, le simulateur continue d’appeler `get_rep_time()`/`recover()` comme aujourd’hui, mais tu peux **lui passer `ctx`/`day`** sans rien casser.&#x20;
+
+---
+
+## Entrées concrètes (UI) → Intrinsèque
+
+* **2k row & 5k row** *(ou FTP vélo + poids)* → calcule **CP/kg** et **W′** ; mappe:
+
+  * `endurance` (0–100) ← CP/kg (échelle)
+  * `fatigue_resistance` (0–100) ← W′ (échelle)
+
+* **10 thrusters / 10 kipping PU / 15 burpees / 15 wall-balls** (chrono) → `base_pace[...] = temps / nb_reps`
+
+* **1RM (BS / DL / C\&J / Snatch / Thruster)** ou 3–5RM (Epley) → `max_lifts[...]`
+
+* **Transitions** (chrono 5–10 fois) → tu peux soit garder en interne (dans Strategy) soit ajuster un champ `base_pace['transition']`.
+
+* **strength** (0–100) : tu peux le **dériver** d’un agrégat des 1RM (ex. normaliser vs poids de corps) ou garder un slider initialement.
+
+* **recovery\_rate** (0–100) : soit slider, soit protocole simple (10 thrusters – 10 s rest – 10 thrusters) pour estimer un score.
+
+---
+
+## UI Streamlit (3 catégories séparées)
+
+```python
+import streamlit as st
+from dataclasses import asdict
+
+st.title("CrossFit Digital Twin — Setup")
+
+# --- A. Intrinsèque ---
+with st.expander("🧍 Profil intrinsèque", expanded=True):
+    col1, col2 = st.columns(2)
+    with col1:
+        weight = st.number_input("Poids (kg)", 40.0, 150.0, 78.0, 0.1)
+        t_thr_10 = st.number_input("10 Thrusters (s)", 10.0, 120.0, 20.0, 0.1)
+        t_pu_10  = st.number_input("10 Kipping PU (s)", 5.0, 120.0, 15.0, 0.1)
+        t_bur_15 = st.number_input("15 Burpees (s)", 10.0, 300.0, 45.0, 0.1)
+        t_wb_15  = st.number_input("15 Wall-balls (s)", 10.0, 300.0, 35.0, 0.1)
+    with col2:
+        row2k = st.text_input("2k Row (mm:ss)", "7:30")
+        row5k = st.text_input("5k Row (mm:ss)", "19:30")
+        bs_1rm = st.number_input("1RM Back Squat (kg)", 40.0, 300.0, 150.0, 1.0)
+        cj_1rm = st.number_input("1RM Clean & Jerk (kg)", 30.0, 250.0, 110.0, 1.0)
+        sn_1rm = st.number_input("1RM Snatch (kg)", 20.0, 200.0, 85.0, 1.0)
+
+# -> calculs: base_pace, max_lifts, endurance, fatigue_resistance, strength, recovery_rate
+# (appelle tes fonctions de mapping ; instancie Athlete(...))
+
+# --- B. Contexte ---
+with st.expander("🌍 Contexte (T/HR/Altitude)", expanded=True):
+    temp = st.number_input("Température (°C)", -10.0, 45.0, 22.0, 0.1)
+    hum  = st.number_input("Humidité (%)", 0.0, 100.0, 50.0, 1.0)
+    alt  = st.number_input("Altitude (m)", 0.0, 4000.0, 0.0, 1.0)
+# ctx = ContextParams(temp, hum, alt)
+
+# --- C. État du jour ---
+with st.expander("📅 État du jour", expanded=True):
+    sleep_h  = st.number_input("Sommeil dernière nuit (h)", 0.0, 12.0, 7.5, 0.1)
+    sleep_q  = st.slider("Qualité du sommeil (1–5)", 1, 5, 3)
+    water_l  = st.number_input("Eau bue depuis réveil (L)", 0.0, 8.0, 2.0, 0.1)
+    mass_day = st.number_input("Poids du jour (kg)", 40.0, 150.0, weight, 0.1)
+# day = DayState(sleep_h, sleep_q, water_l, mass_day)
+```
+
+Dans ton **pipeline** :
+
+1. Construis `Athlete` (avec `base_pace`, `max_lifts`, `endurance`, `strength`, `fatigue_resistance`, `recovery_rate`, `weight_kg`).&#x20;
+2. Construis `ContextParams` et `DayState`.
+3. Au moment de simuler, passe-les à `get_rep_time(..., ctx, day)` et `recover(..., ctx, day)` (ou stocke-les dans l’athlète lors de l’instanciation). Le `WorkoutSimulator` reste inchangé côté API, tu ajoutes juste ces deux objets aux appels internes (facile à propager).&#x20;
+
+---
+
+## Acceptation (Done = ✅)
+
+* ✅ **Intrinsèque** : mapping des entrées concrètes (2k/5k/FTP, 10/15 reps chronométrées, 1RM) vers `endurance`, `fatigue_resistance`, `strength`, `recovery_rate`, `base_pace`, `max_lifts`.&#x20;
+* ✅ **Contexte** : `ContextParams` et multiplicateurs (`u_shape`, `hot/humid`, `altitude`) appliqués dans `get_rep_time`/`recover`.
+* ✅ **État du jour** : `DayState` -> `freshness_factor`, `hydration_factor` appliqués à `recovery_rate` et (faiblement) aux vitesses de base.
+* ✅ **UI Streamlit** : 3 sections indépendantes, toutes les entrées concrètes présentes, résumé des 16 paramètres calculés.
+* ✅ **Compatibilité** : si `ctx/day` non fournis, comportement identique à aujourd’hui.
+
+Si tu veux, je te fournis le **diff précis** sur `athlete.py` et un **exemple d’invocation** dans `simulator.py` pour relayer `ctx/day` lors des appels à `get_rep_time()` / `recover()`.
