@@ -24,6 +24,12 @@ from .athlete_v2 import AthleteV2, ContextParams, DayState
 from .fatigue_models import FatigueManager, MovementPattern
 from .rpe_strategy import RPEStrategy, create_rpe_strategy, RPELevel
 
+# Advanced optimization features
+from .strategy_solver import StrategySolver, StrategySolution, CandidateStrategy
+from .operational_whatif import OperationalAnalyzer, OperationalParameter, WhatIfResult
+from .clone_optimization import CloneOptimizer, ParameterVariation, CloneOptimization
+from .sensitivity_analysis import SensitivityAnalyzer, SensitivityResult
+
 __version__ = "0.2.0"
 
 # Legacy exports
@@ -66,4 +72,17 @@ __all__.extend([
     "RPEStrategy",
     "create_rpe_strategy",
     "RPELevel",
+
+    # Advanced optimization
+    "StrategySolver",
+    "StrategySolution",
+    "CandidateStrategy",
+    "OperationalAnalyzer",
+    "OperationalParameter",
+    "WhatIfResult",
+    "CloneOptimizer",
+    "ParameterVariation",
+    "CloneOptimization",
+    "SensitivityAnalyzer",
+    "SensitivityResult",
 ])
