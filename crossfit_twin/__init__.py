@@ -24,11 +24,27 @@ from .athlete_v2 import AthleteV2, ContextParams, DayState
 from .fatigue_models import FatigueManager, MovementPattern
 from .rpe_strategy import RPEStrategy, create_rpe_strategy, RPELevel
 
-# Advanced optimization features
-from .strategy_solver import StrategySolver, StrategySolution, CandidateStrategy
-from .operational_whatif import OperationalAnalyzer, OperationalParameter, WhatIfResult
-from .clone_optimization import CloneOptimizer, ParameterVariation, CloneOptimization
-from .sensitivity_analysis import SensitivityAnalyzer, SensitivityResult
+# Advanced optimization features (optional)
+try:
+    from .strategy_solver import StrategySolver, StrategySolution, CandidateStrategy
+    from .operational_whatif import OperationalAnalyzer, OperationalParameter, WhatIfResult
+    from .clone_optimization import CloneOptimizer, ParameterVariation, CloneOptimization
+    from .sensitivity_analysis import SensitivityAnalyzer, SensitivityResult
+    _advanced_features_available = True
+except ImportError as e:
+    # Advanced features not available, create dummy classes
+    StrategySolver = None
+    StrategySolution = None
+    CandidateStrategy = None
+    OperationalAnalyzer = None
+    OperationalParameter = None
+    WhatIfResult = None
+    CloneOptimizer = None
+    ParameterVariation = None
+    CloneOptimization = None
+    SensitivityAnalyzer = None
+    SensitivityResult = None
+    _advanced_features_available = False
 
 __version__ = "0.2.0"
 
@@ -73,16 +89,20 @@ __all__.extend([
     "create_rpe_strategy",
     "RPELevel",
 
-    # Advanced optimization
-    "StrategySolver",
-    "StrategySolution",
-    "CandidateStrategy",
-    "OperationalAnalyzer",
-    "OperationalParameter",
-    "WhatIfResult",
-    "CloneOptimizer",
-    "ParameterVariation",
-    "CloneOptimization",
-    "SensitivityAnalyzer",
-    "SensitivityResult",
 ])
+
+# Add advanced optimization exports if available
+if _advanced_features_available:
+    __all__.extend([
+        "StrategySolver",
+        "StrategySolution",
+        "CandidateStrategy",
+        "OperationalAnalyzer",
+        "OperationalParameter",
+        "WhatIfResult",
+        "CloneOptimizer",
+        "ParameterVariation",
+        "CloneOptimization",
+        "SensitivityAnalyzer",
+        "SensitivityResult",
+    ])

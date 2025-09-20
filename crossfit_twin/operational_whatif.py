@@ -650,3 +650,37 @@ class OperationalAnalyzer:
                     priorities.append(f"  - {imp.delta.parameter.description} ({imp.delta.training_required} training)")
 
         return priorities
+
+
+@dataclass
+class OperationalImpact:
+    """Impact assessment of an operational change."""
+    delta: OperationalDelta
+    time_savings: float                     # Estimated time savings (seconds)
+    impact_per_rep: float                   # Time savings per rep affected
+    total_reps_affected: int                # Total reps this change affects
+    bottleneck_relief: float                # 0-1, how much this relieves bottlenecks
+    implementation_difficulty: str          # "Easy", "Moderate", "Hard"
+    confidence: float = 0.8                 # 0-1, confidence in estimate
+
+
+@dataclass
+class OperationalStrategy:
+    """Complete operational improvement strategy."""
+    improvements: List[OperationalImpact]
+    total_time_savings: float
+    implementation_plan: List[str]
+    risk_factors: List[str]
+    training_priorities: List[str]
+
+
+@dataclass
+class WhatIfResult:
+    """Result of a what-if analysis scenario."""
+    scenario_name: str
+    parameter_changes: List[OperationalDelta]
+    time_impact: float                      # Total time change (seconds)
+    feasibility_score: float                # 0-1, how realistic this scenario is
+    training_required: str                  # Description of training needed
+    implementation_timeline: str            # When this could be ready
+    confidence: float = 0.8                 # Confidence in the prediction
