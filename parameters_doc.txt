@@ -1,170 +1,1615 @@
-Super clair. Voici un **énoncé de mise à jour** qui colle à ton code actuel et te donne une UI Streamlit en **3 catégories** (Intrinsèque / Contexte / État du jour), + le pont “entrées concrètes → paramètres du modèle”.
+ci joint mon projet python, j'aimerais le remodeler, ici les parametres que mon ahtlete va rentrer dans l'UI : Athlete overall fitness benchmark :  
 
----
+weighlifting benchmark : 
+	back squat, front squat, OH squat
+	strict press, push press, push jerk
+	bench
+	deadlift
+	power snatch, snatch
+	power clean, clean
+	clean and jerk
+	
 
-# Énoncé de mise à jour — Digital Twin CrossFit
+gymnastic benchmark : 
+	max serie : HSPU, pull up, toes to bar, BMU, RMU, wall balls (en reps)
+	cycle time for time: 60DU, 20WB, 20 pull-up, 20 Toes to bar, 10BMU, 5RMU, 20HSPU, 15m HS walk (en min:sec)
 
-## Objectif
+monostructural benchmark :
+	bike : FTP bike (watt)
+	row : 500m, 2k, 5k (time en min:sec)
+	run : 100m, 400m, 1600m, 5k 
+	swiw : 50m,100m, 200m
+	DU : max serie
 
-Rendre le modèle exploitable par l’athlète avec des **entrées concrètes**, tout en gardant ton moteur compatible avec l’existant :
+Crossfit benchmark : 
+	Fran, Amanda, Diane, Helen, Angie, Cindy, Grace, Isabel, Nancy, Mary, Murph(with vest), Nate, Fight Gone Bad, Filthy 50
 
-* Côté code actuel, l’athlete a `strength/endurance/fatigue_resistance/recovery_rate` (0–100), `weight_kg`, des `max_lifts` et des `base_pace`, avec les méthodes `get_rep_time()`, `get_fatigue_per_rep()` et `recover()` utilisées par le simulateur.&#x20;
-* Le simulateur appelle ces méthodes lors des reps, des pauses et des transitions.&#x20;
 
-## Principes (sans casser l’existant)
+Contexte : 
+-temperature
+-altitude
+-humiditié (%)
 
-1. **Séparer les sources d’influence** en 3 couches :
+Etat du jour : 
+-heure de sommeil (heures)
+-eau bue depuis le reveil (litre)
+-RPE attendue sur la seance (entre 0 et 10), aide a moi discuter d'une facon d'adapter le projet python actuel avec ces parametres que je fais avec claude code
+ChatGPT a dit :
+Réflexion durant 11s
 
-   * **Intrinsèque (profil stable)** → remplit `base_pace`, `max_lifts`, `endurance`, `strength`, `fatigue_resistance`, `recovery_rate`.
-   * **Contexte (T/HR/altitude)** → modulateurs sur vitesses de base, récupération et dérive cardio.
-   * **État du jour (sommeil, hydratation, poids du jour)** → multiplicateurs doux sur récupération et vitesses.
+Lecture des documents
 
-2. **Adapter sans réécrire** : ajouter des *dataclasses* “contexte” et “jour J”, puis les prendre en compte **dans `get_rep_time()` et `recover()`** (paramètres optionnels ou attributs de l’athlète), pour que `WorkoutSimulator` n’ait pas à changer son API publique.
+Je vais proposer comment adapter le projet Python actuel pour intégrer les paramètres de l'interface utilisateur (benchmark, etc.) dans le modèle. Il faut définir le schéma de données et la correspondance entre les benchmarks et les paramètres des athlètes (force, endurance, etc.). Également, il faut ajuster les classes, les API et les calculs nécessaires (par exemple, les classes de référence Benchmark et les fonctions de normalisation).
 
----
+Je vais proposer une checklist et des ébauches de code pour intégrer les nouvelles données utilisateur. Cela inclut la cartographie entre les benchmarks et les paramètres comme base_pace et max_lifts, ainsi que la proposition d'un schéma UI avec validation (JSON/Pydantic). Je vais aussi intégrer les champs manquants dans DayState comme RPE et s'assurer qu'ils sont correctement mappés.
 
-## Changements minimum côté code
+Terminé
 
-### 1) Ajouter deux dataclasses
+Top – on va brancher tout ça proprement dans ton moteur actuel sans tout casser. Je te propose une refonte ajoutant une couche “Benchmarks → Modèle” + quelques champs aux dataclasses existantes, tout en gardant l’API Athlete / WOD / Strategy / simulate(...) (déjà exposée par ton __init__) 
 
-```python
+__init__
+
+.
+Je te donne un plan concret, des mappings, puis des snippets prêts à coller.
+
+Plan pragmatique (sans big-bang)
+
+Nouveau module benchmarks.py
+
+Rôle : prendre les entrées UI (tes listes ci-dessous) et produire :
+a) des max_lifts cohérents,
+b) des base_pace (temps/rep) par mouvement,
+c) les 4 méta-scores de l’athlète (strength, endurance, fatigue_resistance, recovery_rate).
+
+On réutilise et étend tes fonctions déjà prévues dans athlete.py :
+
+parse_time_string() pour mm:ss → secondes,
+
+map_cardio_to_endurance(...) (2k/5k rameur → endurance & fatigue_resistance),
+
+map_strength_lifts_to_strength(...),
+
+map_rep_tests_to_base_pace(...). 
+
+athlete
+
+Étendre les dataclasses existantes (léger)
+
+DayState : ajoute rpe_intended: int = 5 (0–10). On l’utilisera pour piloter l’intensité cible de la stratégie. (DayState gère déjà sommeil, eau, poids) 
+
+athlete
+
+ContextParams est déjà OK pour température, humidité, altitude (tes “Contexte”). 
+
+athlete
+
+Adapter la vitesse de rep & la récup à l’état du jour / contexte
+
+C’est déjà prévu : get_rep_time(...) applique fatigue, endurance, contexte thermique/altitude, et “freshness/hydration” du DayState. Tu as aussi recover(...) qui combine chaleur/humidité + sommeil + hydratation. On garde ce cœur tel quel. 
+
+athlete
+
+Relier l’RPE à la stratégie
+
+Strategy possède target_intensity et les stratégies concrètes (Unbroken, Fractioned, Conservative…) utilisent déjà un seuil de fatigue (global_fatigue_threshold) et des patterns repos. On va écraser dynamiquement target_intensity/seuils en fonction de l’RPE prévue du jour. 
+
+strategy
+
+Point d’entrée “facile UI”
+
+Ajoute une fabrique build_athlete_from_ui_benchmarks(ui: dict, context: ContextParams, day: DayState) -> Athlete + un helper pick_strategy_from_rpe(day: DayState) -> Strategy.
+
+Dans ton appli (Streamlit, Claude Code, etc.), tu appelles :
+ath = build_athlete_from_ui_benchmarks(...); strat = pick_strategy_from_rpe(day); simulate(wod, ath, strat) (tu as déjà WorkoutSimulator et un SimulationResult bien structuré). 
+
+simulator
+
+Mappings concrets UI → Modèle
+1) Haltéro (1RM)
+
+Entrées UI : back/front/OH squat, strict/push press/jerk, bench, deadlift, power/plein snatch & clean, C&J.
+
+Construis max_lifts (kg) avec clés alignées sur celles utilisées par Athlete (p.ex. "back-squat", "deadlift", "bench-press", "overhead-press", "clean", "snatch", "thruster").
+
+Calcule strength (0–100) via ta fonction existante (utilise BS, C&J, Snatch + BW). 
+
+athlete
+
+2) Gym
+
+Max séries (HSPU, Pull-up, TTB, BMU, RMU, wall-balls) → servent à plafonner la taille de set par défaut dans les stratégies “Fractioned/Descending” (via get_set_breakdown et RestPattern). Tu peux traduire “max 20 pull-ups unbroken” en pattern typique “sets de 10–12”. Les stratégies gèrent déjà repos planifié vs seuil de fatigue. 
+
+strategy
+
+Cycles “for time” (60DU, 20WB, 20 PU, 20 TTB, 10 BMU, 5 RMU, 20 HSPU, 15 m HS walk) → convertis en temps / rep et alimente base_pace avec map_rep_tests_to_base_pace(...) + quelques règles spécifiques (DU ≈ 0.5 s/rep déjà prévu). 
+
+athlete
+
+3) Monostructurel
+
+Bike FTP (W) : convertis en W/kg et mappe-le vers une estimation d’endurance (même logique que CP), ou combine-le avec rameur 2k/5k.
+
+Row 500m, 2k, 5k : déjà parfait pour map_cardio_to_endurance(...) (utilise 2k/5k). 
+
+athlete
+
+Run 100/400/1600/5k, Swim 50/100/200 : dérive une courbe temps-distance simple (p.ex. modèle “puissance critique” ou vitesse de base + dérive), puis projette vers endurance et fatigue_resistance (moyenne pondérée avec rameur si dispo).
+
+DU max série : ajuste base_pace["double-under"] (plus la série unbroken est grande, plus la cadence est stable → légère baisse du temps/rep).
+
+4) Benchmarks CrossFit “metcons”
+
+Fran/Amanda/Diane/... (si fournis) : optionnellement tu peux calibrer un facteur de “mixed-modal skill” en comparant un temps simulé naïf vs leur PR, puis corriger recovery_rate/fatigue_resistance.
+
+Tu peux aussi en déduire des patrons de sets préférés (ex: si Fran PR a été fait 21-9-15 en 12/9 + 9 unbroken → proposer un RestPattern par défaut).
+
+5) Contexte & État du jour
+
+Déjà pleinement exploités dans get_rep_time(...) et recover(...) (température en U-shape, dérive cardio chaud/humide/altitude, freshness = sommeil/qualité, hydratation = eau/poids/temp). On ne change rien, juste alimenter Athlete avec ctx/day courants. 
+
+athlete
+
+Snippets prêts à coller
+A) athlete.py – petite extension DayState
+# + dans athlete.py
+@dataclass
+class DayState:
+    sleep_h: float = 7.5
+    sleep_quality: int = 3
+    water_l: float = 2.0
+    body_mass_kg: float = 75.0
+    rpe_intended: int = 5  # 0–10, pilotera l’intensité de la stratégie
+
+
+(Le reste de la logique sommeil/hydratation reste inchangé et déjà utilisée dans get_rep_time/recover.) 
+
+athlete
+
+B) Nouveau benchmarks.py
+# benchmarks.py
+from dataclasses import dataclass
+from typing import Dict, Optional, Tuple
+from .athlete import Athlete, ContextParams, DayState, parse_time_string, \
+    map_cardio_to_endurance, map_strength_lifts_to_strength, map_rep_tests_to_base_pace
+
+@dataclass
+class UIBenchmarks:
+    # Haltéro (kg)
+    back_squat: Optional[float] = None
+    front_squat: Optional[float] = None
+    oh_squat: Optional[float] = None
+    strict_press: Optional[float] = None
+    push_press: Optional[float] = None
+    push_jerk: Optional[float] = None
+    bench: Optional[float] = None
+    deadlift: Optional[float] = None
+    power_snatch: Optional[float] = None
+    snatch: Optional[float] = None
+    power_clean: Optional[float] = None
+    clean: Optional[float] = None
+    clean_and_jerk: Optional[float] = None
+
+    # Gym – max reps
+    max_hspu: Optional[int] = None
+    max_pullup: Optional[int] = None
+    max_ttb: Optional[int] = None
+    max_bmu: Optional[int] = None
+    max_rmu: Optional[int] = None
+    max_wb: Optional[int] = None
+
+    # Gym – “for time” cycles (mm:ss)
+    t_60du: Optional[str] = None
+    t_20wb: Optional[str] = None
+    t_20pu: Optional[str] = None
+    t_20ttb: Optional[str] = None
+    t_10bmu: Optional[str] = None
+    t_5rmu: Optional[str] = None
+    t_20hspu: Optional[str] = None
+    t_hswalk_15m: Optional[str] = None
+
+    # Mono
+    ftp_bike_w: Optional[int] = None
+    row_500m: Optional[str] = None
+    row_2k: Optional[str] = None
+    row_5k: Optional[str] = None
+    run_100m: Optional[str] = None
+    run_400m: Optional[str] = None
+    run_1600m: Optional[str] = None
+    run_5k: Optional[str] = None
+    swim_50m: Optional[str] = None
+    swim_100m: Optional[str] = None
+    swim_200m: Optional[str] = None
+    du_max: Optional[int] = None
+
+    # Metcons optionnels (mm:ss) – ex: fran, grace, etc.
+    fran: Optional[str] = None
+    grace: Optional[str] = None
+    # ... ajoute ce que tu veux ici
+
+def _time_to_seconds(v: Optional[str]) -> Optional[float]:
+    return parse_time_string(v) if v else None
+
+def build_athlete_from_ui_benchmarks(
+    name: str,
+    body_mass_kg: float,
+    ui: UIBenchmarks,
+    ctx: Optional[ContextParams] = None,
+    day: Optional[DayState] = None,
+    experience_level: str = "intermediate"
+) -> Athlete:
+    # 1) Max lifts
+    max_lifts: Dict[str, float] = {}
+    if ui.back_squat:     max_lifts["back-squat"] = ui.back_squat
+    if ui.deadlift:       max_lifts["deadlift"] = ui.deadlift
+    if ui.bench:          max_lifts["bench-press"] = ui.bench
+    if ui.strict_press:   max_lifts["overhead-press"] = ui.strict_press
+    if ui.clean:          max_lifts["clean"] = ui.clean
+    if ui.snatch:         max_lifts["
+
+Sources
+Vous avez dit :
+la facon existance avec la force entre 0 et 100 etc je trouve ca pourri, remet ca en cause aussi, on peut admettre une refonte assez general
+ChatGPT a dit :
+Réflexion durant 1m 0s
+
+Réflexion plus longue pour une meilleure réponse
+
+Lire les fichiers et proposer une refactorisation
+from pathlib import Path, PurePosixPath
+base = Path('/mnt/data')
+list(base.iterdir())
+
+[PosixPath('/mnt/data/__init__.py'),
+ PosixPath('/mnt/data/workout.py'),
+ PosixPath('/mnt/data/strategy.py'),
+ PosixPath('/mnt/data/simulator.py'),
+ PosixPath('/mnt/data/utils.py'),
+ PosixPath('/mnt/data/athlete.py')]
+Lecture des fichiers et proposition de refactorisation
+print(open('/mnt/data/__init__.py','r',encoding='utf-8').read()[:800])
+
+"""
+CrossFit Digital Twin Library
+
+A Python library for simulating CrossFit athlete performance and optimizing pacing strategies.
+"""
+
+from .athlete import Athlete
+from .workout import WOD, Exercise
+from .strategy import Strategy
+from .simulator import simulate, SimulationResult
+
+__version__ = "0.1.0"
+__all__ = [
+    "Athlete",
+    "WOD", 
+    "Exercise",
+    "Strategy",
+    "simulate",
+    "SimulationResult",
+]
+
+Lire et analyser les fichiers du projet
+print(open('/mnt/data/athlete.py','r',encoding='utf-8').read()[:2000])
+
+"""
+Athlete module for CrossFit Digital Twin.
+
+Contains the Athlete class that models a CrossFit athlete's physical and performance characteristics.
+"""
+
+from dataclasses import dataclass, field
+from typing import Dict, Optional
+import copy
+import re
+
+
 @dataclass
 class ContextParams:
+    """
+    Environmental context parameters affecting performance.
+    
+    Attributes:
+        temperature_c: Temperature in Celsius
+        humidity_pct: Humidity percentage (0-100)
+        altitude_m: Altitude in meters above sea level
+    """
     temperature_c: float = 20.0
     humidity_pct: float = 50.0
     altitude_m: float = 0.0
 
+
 @dataclass
 class DayState:
+    """
+    Daily state parameters affecting performance.
+    
+    Attributes:
+        sleep_h: Hours of sleep last night
+        sleep_quality: Sleep quality on 1-5 scale
+        water_l: Liters of water consumed since waking
+        body_mass_kg: Current body weight
+    """
     sleep_h: float = 7.5
-    sleep_quality: int = 3    # 1–5
+    sleep_quality: int = 3  # 1-5 scale
     water_l: float = 2.0
     body_mass_kg: float = 75.0
-```
 
-### 2) Fonctions de mapping “entrées → multiplicateurs”
 
-```python
-def freshness_factor(sleep_h: float, qual: int) -> float:
-    return max(0.60, min(1.05, 0.8 + 0.03*(sleep_h-7.5) + 0.02*(qual-3)))
+def parse_time_string(time_str: str) -> float:
+    """Parse time string like '7:30' or '19:30' to seconds."""
+    if ':' in time_str:
+        parts = time_str.split(':')
+        minutes = int(parts[0])
+        seconds = int(parts[1])
+        return minutes * 60 + seconds
+    else:
+        return float(time_str)
+
+
+def freshness_factor(sleep_h: float, sleep_quality: int) -> float:
+    """Calculate freshness factor based on sleep."""
+    return max(0.60, min(1.05, 0.8 + 0.03*(sleep_h-7.5) + 0.02*(sleep_quality-3)))
+
 
 def hydration_factor(water_l: float, mass_kg: float, temp_c: float) -> float:
-    target = 0.033*mass_kg + (0.25 if temp_c>24 else 0.0)
+    """Calculate hydration factor."""
+    target = 0.033*mass_kg + (0.25 if temp_c > 24 else 0.0)
     ratio = water_l / max(0.5, target)
     return max(0.70, min(1.10, ratio))
 
-def u_shape_cycle_multiplier(temp_c: float, t0: float=20.0, a: float=8e-4) -> float:
+
+def u_shape_cycle_multiplier(temp_c: float, t0: float = 20.0, a: float = 8e-4) -> float:
+    """Calculate temperature effect on performance (U-shaped curve)."""
+    d = te
+
+Lecture du fichier et proposition de refactorisation
+print(open('/mnt/data/athlete.py','r',encoding='utf-8').read())
+
+tor."""
+    target = 0.033*mass_kg + (0.25 if temp_c > 24 else 0.0)
+    ratio = water_l / max(0.5, target)
+    return max(0.70, min(1.10, ratio))
+
+
+def u_shape_cycle_multiplier(temp_c: float, t0: float = 20.0, a: float = 8e-4) -> float:
+    """Calculate temperature effect on performance (U-shaped curve)."""
     d = temp_c - t0
     return 1.0 + a*(d*d)
 
-def hot_humid_recovery_scale(temp_c: float, hum: float, t_lin: float=22.0, k: float=0.012, h_amp: float=0.4) -> float:
+
+def hot_humid_recovery_scale(temp_c: float, hum: float, t_lin: float = 22.0, k: float = 0.012, h_amp: float = 0.4) -> float:
+    """Calculate recovery scaling factor for hot/humid conditions."""
     hot = max(0.0, temp_c - t_lin)
     penalty = (k*hot)*(1 + h_amp*hum/100.0)
-    return max(0.6, 1.0 - penalty)     # 0.6–1.0
+    return max(0.6, 1.0 - penalty)
 
-def cardio_drift_scale(temp_c: float, hum: float, alt_m: float, t_lin: float=22.0, k: float=0.015, h_amp: float=0.4) -> float:
+
+def cardio_drift_scale(temp_c: float, hum: float, alt_m: float, t_lin: float = 22.0, k: float = 0.015, h_amp: float = 0.4) -> float:
+    """Calculate cardiovascular drift scaling for environmental conditions."""
     hot = max(0.0, temp_c - t_lin)
     scale = 1.0 + (k*hot)*(1 + h_amp*hum/100.0)
     if alt_m > 700:
         steps = (alt_m - 700)/300.0
         scale *= (1.0 + 0.06*max(0.0, steps))
     return scale
-```
 
-### 3) Étendre légèrement `Athlete.get_rep_time()` et `recover()`
 
-Ajoute deux arguments **optionnels** `ctx: ContextParams=None` et `day: DayState=None`. Par défaut, comportement inchangé.
+def map_cardio_to_endurance(row_2k_time: float, row_5k_time: float, weight_kg: float) -> tuple[float, float]:
+    """
+    Map 2k/5k row times to endurance and fatigue resistance.
+    
+    Returns:
+        tuple: (endurance_0_100, fatigue_resistance_0_100)
+    """
+    # Calculate power estimates (simplified)
+    # Elite 2k times: ~6:00-6:30, recreational: 8:00-10:00+
+    
+    # Critical Power estimation from 2k and 5k
+    t2 = row_2k_time / 60.0  # minutes
+    t5 = row_5k_time / 60.0  # minutes
+    
+    # Simplified CP/W' model
+    # Power = CP + W'/t
+    # Solve for CP and W' from two time points
+    if t5 > t2:
+        # Rough estimation
+        cp_watts_per_kg = 180.0 / max(t2, 6.0)  # Scales inversely with time
+        w_prime = max(0, (t5 - t2) * cp_watts_per_kg * 60 * 0.1)  # Anaerobic capacity
+    else:
+        cp_watts_per_kg = 3.0
+        w_prime = 1000.0
+    
+    # Map to 0-100 scales
+    # Elite CP ~4.5+ W/kg, recreational ~2.5 W/kg
+    endurance = max(0, min(100, (cp_watts_per_kg - 2.0) * 33.3))
+    
+    # W' typically 10-25 kJ, map to 0-100
+    fatigue_resistance = max(0, min(100, w_prime / 250.0 * 100))
+    
+    return endurance, fatigue_resistance
 
-* Dans `get_rep_time()` :
 
-  * multiplier `base_time` par `u_shape_cycle_multiplier(ctx.temperature_c)` si `ctx` est fourni,
-  * appliquer un **bonus léger** si `day` → `base_time /= (0.98 + 0.02*freshness_factor(...))`.
-  * tu peux intégrer `cardio_drift_scale()` en gonflant la composante “fatigue” (ex.: `fatigue_factor *= cardio_scale`).
+def map_strength_lifts_to_strength(bs_1rm: float, cj_1rm: float, sn_1rm: float, weight_kg: float) -> float:
+    """Map 1RM lifts to strength score."""
+    # Calculate relative strength (lift / bodyweight)
+    bs_ratio = bs_1rm / weight_kg
+    cj_ratio = cj_1rm / weight_kg
+    sn_ratio = sn_1rm / weight_kg
+    
+    # Elite ratios: BS ~2.5, C&J ~1.8, Sn ~1.4
+    # Beginner ratios: BS ~1.0, C&J ~0.7, Sn ~0.5
+    
+    # Weighted average (back squat counts more for general strength)
+    strength_ratio = (bs_ratio * 0.5 + cj_ratio * 0.3 + sn_ratio * 0.2)
+    
+    # Map to 0-100 scale
+    # 1.0 ratio = 0 points, 2.5+ ratio = 100 points
+    strength = max(0, min(100, (strength_ratio - 1.0) * 66.7))
+    
+    return strength
 
-* Dans `recover()` :
 
-  * multiplier `recovery_rate_per_second` par `freshness_factor(...) * hydration_factor(...) * hot_humid_recovery_scale(...)` lorsque `ctx/day` sont présents.
+def map_rep_tests_to_base_pace(t_thr_10: float, t_pu_10: float, t_bur_15: float, t_wb_15: float) -> Dict[str, float]:
+    """Map timed rep tests to base pace dictionary."""
+    base_pace = {
+        "thruster": t_thr_10 / 10.0,
+        "pull-up": t_pu_10 / 10.0,
+        "burpee": t_bur_15 / 15.0,
+        "wall-ball": t_wb_15 / 15.0,
+    }
+    
+    # Add derived paces for other exercises based on similar movement patterns
+    base_pace.update({
+        "kettlebell-swing": base_pace["thruster"] * 0.8,  # Faster than thrusters
+        "box-jump": base_pace["burpee"] * 0.6,  # Faster than burpees
+        "rowing": 2.0,  # seconds per calorie
+        "air-squat": base_pace["thruster"] * 0.5,  # Much faster
+        "push-up": base_pace["burpee"] * 0.4,  # Component of burpee
+        "sit-up": base_pace["burpee"] * 0.3,  # Fast movement
+        "double-under": 0.5,  # Very fast
+        "deadlift": base_pace["thruster"] * 1.5,  # Slower, heavier
+        "clean": base_pace["thruster"] * 2.0,  # Technical lift
+        "snatch": base_pace["thruster"] * 2.2,  # Most technical
+    })
+    
+    return base_pace
 
-> Ainsi, le simulateur continue d’appeler `get_rep_time()`/`recover()` comme aujourd’hui, mais tu peux **lui passer `ctx`/`day`** sans rien casser.&#x20;
 
----
+@dataclass
+class Athlete:
+    """
+    Represents a CrossFit athlete with physical parameters and performance characteristics.
+    
+    Attributes:
+        name: Athlete's name for identification
+        strength: Overall strength level (0-100 scale)
+        endurance: Cardiovascular endurance (0-100 scale)
+        fatigue_resistance: Resistance to fatigue accumulation (0-100 scale)
+        recovery_rate: Rate of recovery during rest periods (0-100 scale)
+        weight_kg: Body weight in kilograms
+        max_lifts: Dictionary of 1RM for various exercises (kg)
+        base_pace: Base time per rep for different exercises when fresh (seconds)
+        experience_level: Training experience (beginner, intermediate, advanced, elite)
+    """
+    
+    name: str
+    strength: float  # 0-100 scale
+    endurance: float  # 0-100 scale
+    fatigue_resistance: float  # 0-100 scale
+    recovery_rate: float  # 0-100 scale
+    weight_kg: float
+    max_lifts: Dict[str, float] = field(default_factory=dict)
+    base_pace: Dict[str, float] = field(default_factory=dict)
+    experience_level: str = "intermediate"
+    
+    def __post_init__(self) -> None:
+        """Validate athlete parameters and set defaults."""
+        self._validate_parameters()
+        self._set_default_paces()
+        self._set_default_lifts()
+        
+        # Optional context and day state for simulation
+        self._current_context: Optional[ContextParams] = None
+        self._current_day_state: Optional[DayState] = None
+    
+    def _validate_parameters(self) -> None:
+        """Validate that all parameters are within acceptable ranges."""
+        for param_name, value in [
+            ("strength", self.strength),
+            ("endurance", self.endurance), 
+            ("fatigue_resistance", self.fatigue_resistance),
+            ("recovery_rate", self.recovery_rate)
+        ]:
+            if not 0 <= value <= 100:
+                raise ValueError(f"{param_name} must be between 0 and 100, got {value}")
+        
+        if self.weight_kg <= 0:
+            raise ValueError(f"weight_kg must be positive, got {self.weight_kg}")
+        
+        if self.experience_level not in ["beginner", "intermediate", "advanced", "elite"]:
+            raise ValueError(f"experience_level must be one of: beginner, intermediate, advanced, elite")
+    
+    def _set_default_paces(self) -> None:
+        """Set default base pace for common CrossFit exercises if not provided."""
+        default_paces = {
+            "thruster": 2.0,      # seconds per rep
+            "pull-up": 1.5,
+            "burpee": 4.0,
+            "box-jump": 2.5,
+            "kettlebell-swing": 1.8,
+            "wall-ball": 2.2,
+            "rowing": 2.0,        # seconds per calorie
+            "air-squat": 1.0,
+            "push-up": 1.5,
+            "sit-up": 1.2,
+            "double-under": 0.5,
+            "deadlift": 3.0,
+            "clean": 4.0,
+            "snatch": 4.5,
+        }
+        
+        for exercise, pace in default_paces.items():
+            if exercise not in self.base_pace:
+                # Adjust base pace based on experience level
+                experience_multiplier = {
+                    "beginner": 1.3,
+                    "intermediate": 1.0,
+                    "advanced": 0.8,
+                    "elite": 0.6
+                }
+                self.base_pace[exercise] = pace * experience_multiplier[self.experience_level]
+    
+    def _set_default_lifts(self) -> None:
+        """Set default 1RM estimates if not provided, based on bodyweight and strength level."""
+        if not self.max_lifts:
+            # Basic strength standards based on bodyweight and strength level
+            strength_multiplier = self.strength / 100.0
+            
+            default_ratios = {
+                "back-squat": 1.5 * strength_multiplier,
+                "deadlift": 2.0 * strength_multiplier,
+                "bench-press": 1.2 * strength_multiplier,
+                "overhead-press": 0.8 * strength_multiplier,
+                "clean": 1.0 * strength_multiplier,
+                "snatch": 0.75 * strength_multiplier,
+                "thruster": 0.6 * strength_multiplier,
+            }
+            
+            for lift, ratio in default_ratios.items():
+                if lift not in self.max_lifts:
+                    self.max_lifts[lift] = self.weight_kg * ratio
+    
+    def get_rep_time(self, exercise: str, weight_kg: Optional[float] = None, fatigue: float = 0.0, 
+                     ctx: Optional[ContextParams] = None, day: Optional[DayState] = None) -> float:
+        """
+        Calculate time to perform one repetition of an exercise.
+        
+        Args:
+            exercise: Name of the exercise
+            weight_kg: Weight used for the exercise (None for bodyweight)
+            fatigue: Current fatigue level (0.0 = fresh, higher = more fatigued)
+            ctx: Environmental context parameters (uses stored context if None)
+            day: Daily state parameters (uses stored day state if None)
+            
+        Returns:
+            Time in seconds for one repetition
+        """
+        # Use stored context/day state if not provided
+        if ctx is None:
+            ctx = self._current_context
+        if day is None:
+            day = self._current_day_state
+            
+        base_time = self.base_pace.get(exercise, 2.0)  # Default 2 seconds if unknown
+        
+        # Adjust for weight if applicable
+        if weight_kg is not None and exercise in self.max_lifts:
+            max_weight = self.max_lifts[exercise]
+            intensity_ratio = weight_kg / max_weight if max_weight > 0 else 0.5
+            # Higher intensity = slower reps
+            weight_factor = 1.0 + (intensity_ratio - 0.5) * 0.5
+        else:
+            weight_factor = 1.0
+        
+        # Adjust for fatigue
+        fatigue_factor = 1.0 + fatigue * 0.8  # Fatigue can slow down significantly
+        
+        # Adjust for endurance (better endurance = less slowdown under fatigue)
+        endurance_factor = 1.0 - (self.endurance / 100.0) * 0.2
+        
+        # Apply context effects if provided
+        context_factor = 1.0
+        if ctx is not None:
+            # Temperature effect (U-shaped curve)
+            context_factor *= u_shape_cycle_multiplier(ctx.temperature_c)
+            
+            # Cardiovascular drift for cardio-intensive exercises
+            if exercise in ["burpee", "rowing", "thruster", "kettlebell-swing"]:
+                cardio_scale = cardio_drift_scale(ctx.temperature_c, ctx.humidity_pct, ctx.altitude_m)
+                fatigue_factor *= cardio_scale
+        
+        # Apply day state effects if provided
+        day_factor = 1.0
+        if day is not None:
+            # Freshness factor affects base performance slightly
+            freshness = freshness_factor(day.sleep_h, day.sleep_quality)
+            day_factor = 0.98 + 0.02 * freshness
+        
+        return base_time * weight_factor * fatigue_factor * endurance_factor * context_factor / day_factor
+    
+    def get_fatigue_per_rep(self, exercise: str, weight_kg: Optional[float] = None) -> float:
+        """
+        Calculate fatigue accumulated per repetition of an exercise.
+        
+        Args:
+            exercise: Name of the exercise
+            weight_kg: Weight used for the exercise
+            
+        Returns:
+            Fatigue points accumulated per rep (0.0 to 1.0+ scale)
+        """
+        # Base fatigue varies by exercise type
+        base_fatigue_map = {
+            "thruster": 0.08,
+            "pull-up": 0.06,
+            "burpee": 0.12,
+            "box-jump": 0.04,
+            "kettlebell-swing": 0.05,
+            "wall-ball": 0.06,
+            "rowing": 0.03,  # per calorie
+            "air-squat": 0.02,
+            "push-up": 0.03,
+            "sit-up": 0.02,
+            "double-under": 0.01,
+            "deadlift": 0.10,
+            "clean": 0.12,
+            "snatch": 0.15,
+        }
+        
+        base_fatigue = base_fatigue_map.get(exercise, 0.05)
+        
+        # Adjust for weight intensity
+        if weight_kg is not None and exercise in self.max_lifts:
+            max_weight = self.max_lifts[exercise]
+            intensity_ratio = weight_kg / max_weight if max_weight > 0 else 0.5
+            weight_factor = 1.0 + intensity_ratio * 0.5
+        else:
+            weight_factor = 1.0
+        
+        # Adjust for fatigue resistance
+        resistance_factor = 1.0 - (self.fatigue_resistance / 100.0) * 0.3
+        
+        return base_fatigue * weight_factor * resistance_factor
+    
+    def recover(self, rest_duration_seconds: float, current_fatigue: float,
+                ctx: Optional[ContextParams] = None, day: Optional[DayState] = None) -> float:
+        """
+        Calculate fatigue recovery during rest period.
+        
+        Args:
+            rest_duration_seconds: Duration of rest in seconds
+            current_fatigue: Current fatigue level
+            ctx: Environmental context parameters (uses stored context if None)
+            day: Daily state parameters (uses stored day state if None)
+            
+        Returns:
+            New fatigue level after recovery
+        """
+        # Use stored context/day state if not provided
+        if ctx is None:
+            ctx = self._current_context
+        if day is None:
+            day = self._current_day_state
+            
+        if current_fatigue <= 0:
+            return 0.0
+        
+        # Recovery rate depends on athlete's recovery ability
+        recovery_multiplier = self.recovery_rate / 100.0
+        
+        # Apply context and day state effects
+        if ctx is not None and day is not None:
+            # Environmental effects on recovery
+            temp_humid_factor = hot_humid_recovery_scale(ctx.temperature_c, ctx.humidity_pct)
+            
+            # Daily state effects
+            freshness = freshness_factor(day.sleep_h, day.sleep_quality)
+            hydration = hydration_factor(day.water_l, day.body_mass_kg, ctx.temperature_c)
+            
+            # Combine all factors
+            recovery_multiplier *= temp_humid_factor * freshness * hydration
+        elif day is not None:
+            # Only day state available
+            freshness = freshness_factor(day.sleep_h, day.sleep_quality)
+            hydration = hydration_factor(day.water_l, day.body_mass_kg, 20.0)  # Assume normal temp
+            recovery_multiplier *= freshness * hydration
+        elif ctx is not None:
+            # Only context available
+            temp_humid_factor = hot_humid_recovery_scale(ctx.temperature_c, ctx.humidity_pct)
+            recovery_multiplier *= temp_humid_factor
+        
+        # Exponential recovery model - faster recovery at higher fatigue levels
+        recovery_rate_per_second = 0.02 * recovery_multiplier
+        
+        # Calculate recovery
+        fatigue_reduction = current_fatigue * (1 - (1 - recovery_rate_per_second) ** rest_duration_seconds)
+        
+        return max(0.0, current_fatigue - fatigue_reduction)
+    
+    def set_simulation_context(self, ctx: Optional[ContextParams] = None, day: Optional[DayState] = None) -> None:
+        """
+        Set context and day state for simulation.
+        
+        Args:
+            ctx: Environmental context parameters
+            day: Daily state parameters
+        """
+        self._current_context = ctx
+        self._current_day_state = day
+    
+    def clone(self, **modifications) -> 'Athlete':
+        """
+        Create a clone of this athlete with optional parameter modifications.
+        
+        Args:
+            **modifications: Keyword arguments to modify in the clone
+            
+        Returns:
+            New Athlete instance with modifications applied
+        """
+        # Deep copy to avoid reference issues
+        clone_data = copy.deepcopy(self.__dict__)
+        
+        # Apply modifications
+        for key, value in modifications.items():
+            if hasattr(self, key):
+                clone_data[key] = value
+            else:
+                raise ValueError(f"Invalid attribute: {key}")
+        
+        # Create new instance
+        cloned_athlete = Athlete.__new__(Athlete)
+        cloned_athlete.__dict__.update(clone_data)
+        
+        # Re-validate if core parameters were changed
+        if any(key in modifications for key in ['strength', 'endurance', 'fatigue_resistance', 'recovery_rate', 'weight_kg']):
+            cloned_athlete._validate_parameters()
+        
+        return cloned_athlete
+    
+    @classmethod
+    def from_concrete_inputs(
+        cls,
+        name: str,
+        # Intrinsic parameters
+        weight_kg: float,
+        row_2k_time: str,  # "7:30" format
+        row_5k_time: str,  # "19:30" format
+        t_thr_10: float,   # 10 thrusters time in seconds
+        t_pu_10: float,    # 10 pull-ups time in seconds
+        t_bur_15: float,   # 15 burpees time in seconds
+        t_wb_15: float,    # 15 wall-balls time in seconds
+        bs_1rm: float,     # Back squat 1RM
+        cj_1rm: float,     # Clean & Jerk 1RM
+        sn_1rm: float,     # Snatch 1RM
+        experience_level: str = "intermediate",
+        # Recovery rate estimation (can be slider or test-based)
+        recovery_rate: float = 70.0
+    ) -> 'Athlete':
+        """
+        Create an Athlete from concrete performance inputs.
+        
+        Args:
+            name: Athlete name
+            weight_kg: Body weight in kg
+            row_2k_time: 2k row time as "mm:ss" string
+            row_5k_time: 5k row time as "mm:ss" string
+            t_thr_10: Time for 10 thrusters (seconds)
+            t_pu_10: Time for 10 pull-ups (seconds)
+            t_bur_15: Time for 15 burpees (seconds)
+            t_wb_15: Time for 15 wall-balls (seconds)
+            bs_1rm: Back squat 1RM (kg)
+            cj_1rm: Clean & Jerk 1RM (kg)
+            sn_1rm: Snatch 1RM (kg)
+            experience_level: Experience level
+            recovery_rate: Recovery rate (0-100)
+            
+        Returns:
+            Athlete instance with calculated parameters
+        """
+        # Parse row times
+        row_2k_seconds = parse_time_string(row_2k_time)
+        row_5k_seconds = parse_time_string(row_5k_time)
+        
+        # Calculate endurance and fatigue resistance from cardio
+        endurance, fatigue_resistance = map_cardio_to_endurance(
+            row_2k_seconds, row_5k_seconds, weight_kg
+        )
+        
+        # Calculate strength from lifts
+        strength = map_strength_lifts_to_strength(bs_1rm, cj_1rm, sn_1rm, weight_kg)
+        
+        # Calculate base pace from rep tests
+        base_pace = map_rep_tests_to_base_pace(t_thr_10, t_pu_10, t_bur_15, t_wb_15)
+        
+        # Calculate max lifts including derivatives
+        max_lifts = {
+            "back-squat": bs_1rm,
+            "clean": cj_1rm,
+            "snatch": sn_1rm,
+            "deadlift": bs_1rm * 1.2,  # Typically higher than squat
+            "thruster": min(cj_1rm * 0.7, weight_kg * 0.8),  # Limited by front rack
+            "overhead-press": cj_1rm * 0.6,  # Typically 60% of C&J
+        }
+        
+        return cls(
+            name=name,
+            strength=strength,
+            endurance=endurance,
+            fatigue_resistance=fatigue_resistance,
+            recovery_rate=recovery_rate,
+            weight_kg=weight_kg,
+            max_lifts=max_lifts,
+            base_pace=base_pace,
+            experience_level=experience_level
+        )
+    
+    def __str__(self) -> str:
+        """String representation of the athlete."""
+        return (f"Athlete(name='{self.name}', strength={self.strength}, "
+                f"endurance={self.endurance}, fatigue_resistance={self.fatigue_resistance}, "
+                f"weight={self.weight_kg}kg, level={self.experience_level})")
+    
+    def __repr__(self) -> str:
+        """Detailed representation of the athlete."""
+        return self.__str__()
 
-## Entrées concrètes (UI) → Intrinsèque
+Vérification de la taille du fichier
+p = Path('/mnt/data/athlete.py')
+print(p.stat().st_size)
 
-* **2k row & 5k row** *(ou FTP vélo + poids)* → calcule **CP/kg** et **W′** ; mappe:
+21680
 
-  * `endurance` (0–100) ← CP/kg (échelle)
-  * `fatigue_resistance` (0–100) ← W′ (échelle)
+Affichage du contenu du fichier et de la longueur
+content = open('/mnt/data/athlete.py','r',encoding='utf-8').read()
+print(content[:4000])
 
-* **10 thrusters / 10 kipping PU / 15 burpees / 15 wall-balls** (chrono) → `base_pace[...] = temps / nb_reps`
+"""
+Athlete module for CrossFit Digital Twin.
 
-* **1RM (BS / DL / C\&J / Snatch / Thruster)** ou 3–5RM (Epley) → `max_lifts[...]`
+Contains the Athlete class that models a CrossFit athlete's physical and performance characteristics.
+"""
 
-* **Transitions** (chrono 5–10 fois) → tu peux soit garder en interne (dans Strategy) soit ajuster un champ `base_pace['transition']`.
+from dataclasses import dataclass, field
+from typing import Dict, Optional
+import copy
+import re
 
-* **strength** (0–100) : tu peux le **dériver** d’un agrégat des 1RM (ex. normaliser vs poids de corps) ou garder un slider initialement.
 
-* **recovery\_rate** (0–100) : soit slider, soit protocole simple (10 thrusters – 10 s rest – 10 thrusters) pour estimer un score.
+@dataclass
+class ContextParams:
+    """
+    Environmental context parameters affecting performance.
+    
+    Attributes:
+        temperature_c: Temperature in Celsius
+        humidity_pct: Humidity percentage (0-100)
+        altitude_m: Altitude in meters above sea level
+    """
+    temperature_c: float = 20.0
+    humidity_pct: float = 50.0
+    altitude_m: float = 0.0
 
----
 
-## UI Streamlit (3 catégories séparées)
+@dataclass
+class DayState:
+    """
+    Daily state parameters affecting performance.
+    
+    Attributes:
+        sleep_h: Hours of sleep last night
+        sleep_quality: Sleep quality on 1-5 scale
+        water_l: Liters of water consumed since waking
+        body_mass_kg: Current body weight
+    """
+    sleep_h: float = 7.5
+    sleep_quality: int = 3  # 1-5 scale
+    water_l: float = 2.0
+    body_mass_kg: float = 75.0
 
-```python
-import streamlit as st
-from dataclasses import asdict
 
-st.title("CrossFit Digital Twin — Setup")
+def parse_time_string(time_str: str) -> float:
+    """Parse time string like '7:30' or '19:30' to seconds."""
+    if ':' in time_str:
+        parts = time_str.split(':')
+        minutes = int(parts[0])
+        seconds = int(parts[1])
+        return minutes * 60 + seconds
+    else:
+        return float(time_str)
 
-# --- A. Intrinsèque ---
-with st.expander("🧍 Profil intrinsèque", expanded=True):
-    col1, col2 = st.columns(2)
-    with col1:
-        weight = st.number_input("Poids (kg)", 40.0, 150.0, 78.0, 0.1)
-        t_thr_10 = st.number_input("10 Thrusters (s)", 10.0, 120.0, 20.0, 0.1)
-        t_pu_10  = st.number_input("10 Kipping PU (s)", 5.0, 120.0, 15.0, 0.1)
-        t_bur_15 = st.number_input("15 Burpees (s)", 10.0, 300.0, 45.0, 0.1)
-        t_wb_15  = st.number_input("15 Wall-balls (s)", 10.0, 300.0, 35.0, 0.1)
-    with col2:
-        row2k = st.text_input("2k Row (mm:ss)", "7:30")
-        row5k = st.text_input("5k Row (mm:ss)", "19:30")
-        bs_1rm = st.number_input("1RM Back Squat (kg)", 40.0, 300.0, 150.0, 1.0)
-        cj_1rm = st.number_input("1RM Clean & Jerk (kg)", 30.0, 250.0, 110.0, 1.0)
-        sn_1rm = st.number_input("1RM Snatch (kg)", 20.0, 200.0, 85.0, 1.0)
 
-# -> calculs: base_pace, max_lifts, endurance, fatigue_resistance, strength, recovery_rate
-# (appelle tes fonctions de mapping ; instancie Athlete(...))
+def freshness_factor(sleep_h: float, sleep_quality: int) -> float:
+    """Calculate freshness factor based on sleep."""
+    return max(0.60, min(1.05, 0.8 + 0.03*(sleep_h-7.5) + 0.02*(sleep_quality-3)))
 
-# --- B. Contexte ---
-with st.expander("🌍 Contexte (T/HR/Altitude)", expanded=True):
-    temp = st.number_input("Température (°C)", -10.0, 45.0, 22.0, 0.1)
-    hum  = st.number_input("Humidité (%)", 0.0, 100.0, 50.0, 1.0)
-    alt  = st.number_input("Altitude (m)", 0.0, 4000.0, 0.0, 1.0)
-# ctx = ContextParams(temp, hum, alt)
 
-# --- C. État du jour ---
-with st.expander("📅 État du jour", expanded=True):
-    sleep_h  = st.number_input("Sommeil dernière nuit (h)", 0.0, 12.0, 7.5, 0.1)
-    sleep_q  = st.slider("Qualité du sommeil (1–5)", 1, 5, 3)
-    water_l  = st.number_input("Eau bue depuis réveil (L)", 0.0, 8.0, 2.0, 0.1)
-    mass_day = st.number_input("Poids du jour (kg)", 40.0, 150.0, weight, 0.1)
-# day = DayState(sleep_h, sleep_q, water_l, mass_day)
-```
+def hydration_factor(water_l: float, mass_kg: float, temp_c: float) -> float:
+    """Calculate hydration factor."""
+    target = 0.033*mass_kg + (0.25 if temp_c > 24 else 0.0)
+    ratio = water_l / max(0.5, target)
+    return max(0.70, min(1.10, ratio))
 
-Dans ton **pipeline** :
 
-1. Construis `Athlete` (avec `base_pace`, `max_lifts`, `endurance`, `strength`, `fatigue_resistance`, `recovery_rate`, `weight_kg`).&#x20;
-2. Construis `ContextParams` et `DayState`.
-3. Au moment de simuler, passe-les à `get_rep_time(..., ctx, day)` et `recover(..., ctx, day)` (ou stocke-les dans l’athlète lors de l’instanciation). Le `WorkoutSimulator` reste inchangé côté API, tu ajoutes juste ces deux objets aux appels internes (facile à propager).&#x20;
+def u_shape_cycle_multiplier(temp_c: float, t0: float = 20.0, a: float = 8e-4) -> float:
+    """Calculate temperature effect on performance (U-shaped curve)."""
+    d = temp_c - t0
+    return 1.0 + a*(d*d)
 
----
 
-## Acceptation (Done = ✅)
+def hot_humid_recovery_scale(temp_c: float, hum: float, t_lin: float = 22.0, k: float = 0.012, h_amp: float = 0.4) -> float:
+    """Calculate recovery scaling factor for hot/humid conditions."""
+    hot = max(0.0, temp_c - t_lin)
+    penalty = (k*hot)*(1 + h_amp*hum/100.0)
+    return max(0.6, 1.0 - penalty)
 
-* ✅ **Intrinsèque** : mapping des entrées concrètes (2k/5k/FTP, 10/15 reps chronométrées, 1RM) vers `endurance`, `fatigue_resistance`, `strength`, `recovery_rate`, `base_pace`, `max_lifts`.&#x20;
-* ✅ **Contexte** : `ContextParams` et multiplicateurs (`u_shape`, `hot/humid`, `altitude`) appliqués dans `get_rep_time`/`recover`.
-* ✅ **État du jour** : `DayState` -> `freshness_factor`, `hydration_factor` appliqués à `recovery_rate` et (faiblement) aux vitesses de base.
-* ✅ **UI Streamlit** : 3 sections indépendantes, toutes les entrées concrètes présentes, résumé des 16 paramètres calculés.
-* ✅ **Compatibilité** : si `ctx/day` non fournis, comportement identique à aujourd’hui.
 
-Si tu veux, je te fournis le **diff précis** sur `athlete.py` et un **exemple d’invocation** dans `simulator.py` pour relayer `ctx/day` lors des appels à `get_rep_time()` / `recover()`.
+def cardio_drift_scale(temp_c: float, hum: float, alt_m: float, t_lin: float = 22.0, k: float = 0.015, h_amp: float = 0.4) -> float:
+    """Calculate cardiovascular drift scaling for environmental conditions."""
+    hot = max(0.0, temp_c - t_lin)
+    scale = 1.0 + (k*hot)*(1 + h_amp*hum/100.0)
+    if alt_m > 700:
+        steps = (alt_m - 700)/300.0
+        scale *= (1.0 + 0.06*max(0.0, steps))
+    return scale
+
+
+def map_cardio_to_endurance(row_2k_time: float, row_5k_time: float, weight_kg: float) -> tuple[float, float]:
+    """
+    Map 2k/5k row times to endurance and fatigue resistance.
+    
+    Returns:
+        tuple: (endurance_0_100, fatigue_resistance_0_100)
+    """
+    # Calculate power estimates (simplified)
+    # Elite 2k times: ~6:00-6:30, recreational: 8:00-10:00+
+    
+    # Critical Power estimation from 2k and 5k
+    t2 = row_2k_time / 60.0  # minutes
+    t5 = row_5k_time / 60.0  # minutes
+    
+    # Simplified CP/W' model
+    # Power = CP + W'/t
+    # Solve for CP and W' from two time points
+    if t5 > t2:
+        # Rough estimation
+        cp_watts_per_kg = 180.0 / max(t2, 6.0)  # Scales inversely with time
+        w_prime = max(0, (t5 - t2) * cp_watts_per_kg * 60 * 0.1)  # Anaerobic capacity
+    else:
+        cp_watts_per_kg = 3.0
+        w_prime = 1000.0
+    
+    # Map to 0-100 scales
+    # Elite CP ~4.5+ W/kg, recreational ~2.5 W/kg
+    endurance = max(0, min(100, (cp_watts_per_kg - 2.0) * 33.3))
+    
+    # W' typically 10-25 kJ, map to 0-100
+    fatigue_resistance = max(0, min(100, w_prime / 250.0 * 100))
+    
+    return endurance, fatigue_resistance
+
+
+def map_strength_lifts_to_strength(bs_1rm: float, cj_1
+
+Impression de contenu pour vérification des longueurs
+# Let's print later part to see dataclasses and methods
+print(content[8000:16000])
+
+]:
+            raise ValueError(f"experience_level must be one of: beginner, intermediate, advanced, elite")
+    
+    def _set_default_paces(self) -> None:
+        """Set default base pace for common CrossFit exercises if not provided."""
+        default_paces = {
+            "thruster": 2.0,      # seconds per rep
+            "pull-up": 1.5,
+            "burpee": 4.0,
+            "box-jump": 2.5,
+            "kettlebell-swing": 1.8,
+            "wall-ball": 2.2,
+            "rowing": 2.0,        # seconds per calorie
+            "air-squat": 1.0,
+            "push-up": 1.5,
+            "sit-up": 1.2,
+            "double-under": 0.5,
+            "deadlift": 3.0,
+            "clean": 4.0,
+            "snatch": 4.5,
+        }
+        
+        for exercise, pace in default_paces.items():
+            if exercise not in self.base_pace:
+                # Adjust base pace based on experience level
+                experience_multiplier = {
+                    "beginner": 1.3,
+                    "intermediate": 1.0,
+                    "advanced": 0.8,
+                    "elite": 0.6
+                }
+                self.base_pace[exercise] = pace * experience_multiplier[self.experience_level]
+    
+    def _set_default_lifts(self) -> None:
+        """Set default 1RM estimates if not provided, based on bodyweight and strength level."""
+        if not self.max_lifts:
+            # Basic strength standards based on bodyweight and strength level
+            strength_multiplier = self.strength / 100.0
+            
+            default_ratios = {
+                "back-squat": 1.5 * strength_multiplier,
+                "deadlift": 2.0 * strength_multiplier,
+                "bench-press": 1.2 * strength_multiplier,
+                "overhead-press": 0.8 * strength_multiplier,
+                "clean": 1.0 * strength_multiplier,
+                "snatch": 0.75 * strength_multiplier,
+                "thruster": 0.6 * strength_multiplier,
+            }
+            
+            for lift, ratio in default_ratios.items():
+                if lift not in self.max_lifts:
+                    self.max_lifts[lift] = self.weight_kg * ratio
+    
+    def get_rep_time(self, exercise: str, weight_kg: Optional[float] = None, fatigue: float = 0.0, 
+                     ctx: Optional[ContextParams] = None, day: Optional[DayState] = None) -> float:
+        """
+        Calculate time to perform one repetition of an exercise.
+        
+        Args:
+            exercise: Name of the exercise
+            weight_kg: Weight used for the exercise (None for bodyweight)
+            fatigue: Current fatigue level (0.0 = fresh, higher = more fatigued)
+            ctx: Environmental context parameters (uses stored context if None)
+            day: Daily state parameters (uses stored day state if None)
+            
+        Returns:
+            Time in seconds for one repetition
+        """
+        # Use stored context/day state if not provided
+        if ctx is None:
+            ctx = self._current_context
+        if day is None:
+            day = self._current_day_state
+            
+        base_time = self.base_pace.get(exercise, 2.0)  # Default 2 seconds if unknown
+        
+        # Adjust for weight if applicable
+        if weight_kg is not None and exercise in self.max_lifts:
+            max_weight = self.max_lifts[exercise]
+            intensity_ratio = weight_kg / max_weight if max_weight > 0 else 0.5
+            # Higher intensity = slower reps
+            weight_factor = 1.0 + (intensity_ratio - 0.5) * 0.5
+        else:
+            weight_factor = 1.0
+        
+        # Adjust for fatigue
+        fatigue_factor = 1.0 + fatigue * 0.8  # Fatigue can slow down significantly
+        
+        # Adjust for endurance (better endurance = less slowdown under fatigue)
+        endurance_factor = 1.0 - (self.endurance / 100.0) * 0.2
+        
+        # Apply context effects if provided
+        context_factor = 1.0
+        if ctx is not None:
+            # Temperature effect (U-shaped curve)
+            context_factor *= u_shape_cycle_multiplier(ctx.temperature_c)
+            
+            # Cardiovascular drift for cardio-intensive exercises
+            if exercise in ["burpee", "rowing", "thruster", "kettlebell-swing"]:
+                cardio_scale = cardio_drift_scale(ctx.temperature_c, ctx.humidity_pct, ctx.altitude_m)
+                fatigue_factor *= cardio_scale
+        
+        # Apply day state effects if provided
+        day_factor = 1.0
+        if day is not None:
+            # Freshness factor affects base performance slightly
+            freshness = freshness_factor(day.sleep_h, day.sleep_quality)
+            day_factor = 0.98 + 0.02 * freshness
+        
+        return base_time * weight_factor * fatigue_factor * endurance_factor * context_factor / day_factor
+    
+    def get_fatigue_per_rep(self, exercise: str, weight_kg: Optional[float] = None) -> float:
+        """
+        Calculate fatigue accumulated per repetition of an exercise.
+        
+        Args:
+            exercise: Name of the exercise
+            weight_kg: Weight used for the exercise
+            
+        Returns:
+            Fatigue points accumulated per rep (0.0 to 1.0+ scale)
+        """
+        # Base fatigue varies by exercise type
+        base_fatigue_map = {
+            "thruster": 0.08,
+            "pull-up": 0.06,
+            "burpee": 0.12,
+            "box-jump": 0.04,
+            "kettlebell-swing": 0.05,
+            "wall-ball": 0.06,
+            "rowing": 0.03,  # per calorie
+            "air-squat": 0.02,
+            "push-up": 0.03,
+            "sit-up": 0.02,
+            "double-under": 0.01,
+            "deadlift": 0.10,
+            "clean": 0.12,
+            "snatch": 0.15,
+        }
+        
+        base_fatigue = base_fatigue_map.get(exercise, 0.05)
+        
+        # Adjust for weight intensity
+        if weight_kg is not None and exercise in self.max_lifts:
+            max_weight = self.max_lifts[exercise]
+            intensity_ratio = weight_kg / max_weight if max_weight > 0 else 0.5
+            weight_factor = 1.0 + intensity_ratio * 0.5
+        else:
+            weight_factor = 1.0
+        
+        # Adjust for fatigue resistance
+        resistance_factor = 1.0 - (self.fatigue_resistance / 100.0) * 0.3
+        
+        return base_fatigue * weight_factor * resistance_factor
+    
+    def recover(self, rest_duration_seconds: float, current_fatigue: float,
+                ctx: Optional[ContextParams] = None, day: Optional[DayState] = None) -> float:
+        """
+        Calculate fatigue recovery during rest period.
+        
+        Args:
+            rest_duration_seconds: Duration of rest in seconds
+            current_fatigue: Current fatigue level
+            ctx: Environmental context parameters (uses stored context if None)
+            day: Daily state parameters (uses stored day state if None)
+            
+        Returns:
+            New fatigue level after recovery
+        """
+        # Use stored context/day state if not provided
+        if ctx is None:
+            ctx = self._current_context
+        if day is None:
+            day = self._current_day_state
+            
+        if current_fatigue <= 0:
+            return 0.0
+        
+        # Recovery rate depends on athlete's recovery ability
+        recovery_multiplier = self.recovery_rate / 100.0
+        
+        # Apply context and day state effects
+        if ctx is not None and day is not None:
+            # Environmental effects on recovery
+            temp_humid_factor = hot_humid_recovery_scale(ctx.temperature_c, ctx.humidity_pct)
+            
+            # Daily state effects
+            freshness = freshness_factor(day.sleep_h, day.sleep_quality)
+            hydration = hydration_factor(day.water_l, day.body_mass_kg, ctx.temperature_c)
+            
+            # Combine all factors
+            recovery_multiplier *= temp_humid_factor * freshness * hydration
+        elif day is not None:
+            # Only day state available
+      
+
+Impression de tranche de fichier et longueurs
+print(content[16000:21680])
+
+      freshness = freshness_factor(day.sleep_h, day.sleep_quality)
+            hydration = hydration_factor(day.water_l, day.body_mass_kg, 20.0)  # Assume normal temp
+            recovery_multiplier *= freshness * hydration
+        elif ctx is not None:
+            # Only context available
+            temp_humid_factor = hot_humid_recovery_scale(ctx.temperature_c, ctx.humidity_pct)
+            recovery_multiplier *= temp_humid_factor
+        
+        # Exponential recovery model - faster recovery at higher fatigue levels
+        recovery_rate_per_second = 0.02 * recovery_multiplier
+        
+        # Calculate recovery
+        fatigue_reduction = current_fatigue * (1 - (1 - recovery_rate_per_second) ** rest_duration_seconds)
+        
+        return max(0.0, current_fatigue - fatigue_reduction)
+    
+    def set_simulation_context(self, ctx: Optional[ContextParams] = None, day: Optional[DayState] = None) -> None:
+        """
+        Set context and day state for simulation.
+        
+        Args:
+            ctx: Environmental context parameters
+            day: Daily state parameters
+        """
+        self._current_context = ctx
+        self._current_day_state = day
+    
+    def clone(self, **modifications) -> 'Athlete':
+        """
+        Create a clone of this athlete with optional parameter modifications.
+        
+        Args:
+            **modifications: Keyword arguments to modify in the clone
+            
+        Returns:
+            New Athlete instance with modifications applied
+        """
+        # Deep copy to avoid reference issues
+        clone_data = copy.deepcopy(self.__dict__)
+        
+        # Apply modifications
+        for key, value in modifications.items():
+            if hasattr(self, key):
+                clone_data[key] = value
+            else:
+                raise ValueError(f"Invalid attribute: {key}")
+        
+        # Create new instance
+        cloned_athlete = Athlete.__new__(Athlete)
+        cloned_athlete.__dict__.update(clone_data)
+        
+        # Re-validate if core parameters were changed
+        if any(key in modifications for key in ['strength', 'endurance', 'fatigue_resistance', 'recovery_rate', 'weight_kg']):
+            cloned_athlete._validate_parameters()
+        
+        return cloned_athlete
+    
+    @classmethod
+    def from_concrete_inputs(
+        cls,
+        name: str,
+        # Intrinsic parameters
+        weight_kg: float,
+        row_2k_time: str,  # "7:30" format
+        row_5k_time: str,  # "19:30" format
+        t_thr_10: float,   # 10 thrusters time in seconds
+        t_pu_10: float,    # 10 pull-ups time in seconds
+        t_bur_15: float,   # 15 burpees time in seconds
+        t_wb_15: float,    # 15 wall-balls time in seconds
+        bs_1rm: float,     # Back squat 1RM
+        cj_1rm: float,     # Clean & Jerk 1RM
+        sn_1rm: float,     # Snatch 1RM
+        experience_level: str = "intermediate",
+        # Recovery rate estimation (can be slider or test-based)
+        recovery_rate: float = 70.0
+    ) -> 'Athlete':
+        """
+        Create an Athlete from concrete performance inputs.
+        
+        Args:
+            name: Athlete name
+            weight_kg: Body weight in kg
+            row_2k_time: 2k row time as "mm:ss" string
+            row_5k_time: 5k row time as "mm:ss" string
+            t_thr_10: Time for 10 thrusters (seconds)
+            t_pu_10: Time for 10 pull-ups (seconds)
+            t_bur_15: Time for 15 burpees (seconds)
+            t_wb_15: Time for 15 wall-balls (seconds)
+            bs_1rm: Back squat 1RM (kg)
+            cj_1rm: Clean & Jerk 1RM (kg)
+            sn_1rm: Snatch 1RM (kg)
+            experience_level: Experience level
+            recovery_rate: Recovery rate (0-100)
+            
+        Returns:
+            Athlete instance with calculated parameters
+        """
+        # Parse row times
+        row_2k_seconds = parse_time_string(row_2k_time)
+        row_5k_seconds = parse_time_string(row_5k_time)
+        
+        # Calculate endurance and fatigue resistance from cardio
+        endurance, fatigue_resistance = map_cardio_to_endurance(
+            row_2k_seconds, row_5k_seconds, weight_kg
+        )
+        
+        # Calculate strength from lifts
+        strength = map_strength_lifts_to_strength(bs_1rm, cj_1rm, sn_1rm, weight_kg)
+        
+        # Calculate base pace from rep tests
+        base_pace = map_rep_tests_to_base_pace(t_thr_10, t_pu_10, t_bur_15, t_wb_15)
+        
+        # Calculate max lifts including derivatives
+        max_lifts = {
+            "back-squat": bs_1rm,
+            "clean": cj_1rm,
+            "snatch": sn_1rm,
+            "deadlift": bs_1rm * 1.2,  # Typically higher than squat
+            "thruster": min(cj_1rm * 0.7, weight_kg * 0.8),  # Limited by front rack
+            "overhead-press": cj_1rm * 0.6,  # Typically 60% of C&J
+        }
+        
+        return cls(
+            name=name,
+            strength=strength,
+            endurance=endurance,
+            fatigue_resistance=fatigue_resistance,
+            recovery_rate=recovery_rate,
+            weight_kg=weight_kg,
+            max_lifts=max_lifts,
+            base_pace=base_pace,
+            experience_level=experience_level
+        )
+    
+    def __str__(self) -> str:
+        """String representation of the athlete."""
+        return (f"Athlete(name='{self.name}', strength={self.strength}, "
+                f"endurance={self.endurance}, fatigue_resistance={self.fatigue_resistance}, "
+                f"weight={self.weight_kg}kg, level={self.experience_level})")
+    
+    def __repr__(self) -> str:
+        """Detailed representation of the athlete."""
+        return self.__str__()
+
+
+Je propose des dataclasses spécifiques :
+
+AthleteCapabilities avec des informations liées à la force, les profils de gymnastique, et des données physiologiques (poids, taille).
+
+*ConditioningState
+
+Terminé
+
+Parfait — on repart sur des bases dimensionnelles (kg, s, W, m/s), fini les scores 0–100. Je te propose une refonte claire qui garde ton pipeline (Athlete → Strategy → simulate) mais remplace les “strength/endurance/fatigue_resistance” par des profils mesurables : 1RM par mouvement, CP/W′ par modalité, cadence gym, tailles de séries, etc.
+
+Objectif de la refonte
+
+Remplacer les scores adimensionnels par des modèles physiologiques simples et des métriques natives :
+
+Haltéro : 1RM par lift + loi temps/rep vs %1RM.
+
+Monostructurel : modèle CP/W′ (ou CS/D′) par modalité (bike, row, run, swim).
+
+Gym : cadence (s/rep) et capacité unbroken par skill.
+
+Fatigue/recup = deux étages :
+
+Cardio via W′bal (Skiba-like) pour bike/row/run/swim,
+
+Local musculaire via “buckets” (pull, push, squat, hinge, core, grip) qui impactent les cadences gym/haltéro et les tailles de séries.
+
+RPE jour = plancher/plafond d’intensité qui pilote la stratégie (tailles de set, repos, %1RM).
+
+Nouvelles datastructures (remplacent les 0–100)
+# capabilities.py
+from dataclasses import dataclass, field
+from typing import Dict, Optional
+
+# --- Haltéro ---
+@dataclass
+class BarbellCycleProfile:
+    base_cycle_s: float = 1.7      # cadence technique à vide
+    load_exp: float = 2.0          # exponent pour la dérive vs %1RM
+    trans_s: float = 0.4           # transitions (setup, lockout, drop)
+
+    def rep_time(self, load_kg: float, one_rm: float) -> float:
+        x = max(0.0, min(1.2, load_kg / max(1e-6, one_rm)))
+        return self.base_cycle_s * (1.0 + (x ** self.load_exp)) + self.trans_s
+
+# --- Monostructurel ---
+@dataclass
+class CPProfile:  # Critical Power / W′ ou Critical Speed / D′
+    cp: float     # W (bike/row) ou m/s (run/swim)
+    w_prime: float  # J (bike/row) ou m (run/swim)
+
+# --- Gymnastique ---
+@dataclass
+class GymSkill:
+    cycle_s: float        # s/rep “à froid”
+    unbroken_cap: int     # reps max “fresh”
+    fatigue_slope: float = 0.35  # dégradation de cadence vs fatigue locale
+    set_decay: float = 0.25      # réduction de taille de set vs fatigue locale
+
+# --- Capacités complètes de l’athlète ---
+@dataclass
+class AthleteCapabilities:
+    body_mass_kg: float
+    # Haltéro : 1RM par mouvement clé
+    one_rm: Dict[str, float]                   # ex: {"back-squat": 180, "snatch": 90, ...}
+    barbell_cycle: BarbellCycleProfile = field(default_factory=BarbellCycleProfile)
+
+    # Gym
+    gym: Dict[str, GymSkill] = field(default_factory=dict)  # "pull-up", "BMU", "HSPU", "DU", "WB"...
+
+    # Cardio par modalité (clé: "bike","row","run","swim")
+    cardio: Dict[str, CPProfile] = field(default_factory=dict)
+
+    # Facteurs de transfert haltéro (si %1RM d’un lift proche pour un autre)
+    lift_alias: Dict[str, str] = field(default_factory=lambda: {
+        "thruster": "front-squat",
+        "push-press": "overhead-press",
+        "clean-and-jerk": "clean",  # on peut affiner plus tard
+    })
+
+Builder : UI Benchmarks → Capabilities
+
+On transforme tes champs UI en ces profils sans perdre d’info.
+
+# builder.py
+from typing import Dict, Optional
+from .capabilities import AthleteCapabilities, GymSkill, CPProfile
+
+def ftp_to_cp(ftp_w: Optional[float]) -> Optional[float]:
+    if ftp_w is None: return None
+    # Simple: FTP ~ CP60 ; CP ~ 0.95*FTP (ajustable)
+    return 0.95 * ftp_w
+
+def two_points_to_cs_dprime(dist1_m, t1_s, dist2_m, t2_s):
+    # CS = (d2 - d1) / (t2 - t1) ; D' = d1 - CS * t1
+    if any(v is None for v in [dist1_m, t1_s, dist2_m, t2_s]): return None
+    if t2_s == t1_s: return None
+    cs = (dist2_m - dist1_m) / (t2_s - t1_s)
+    dprime = dist1_m - cs * t1_s
+    return cs, max(0.0, dprime)
+
+def ui_to_capabilities(
+    body_mass_kg: float,
+    lifts_1rm: Dict[str, Optional[float]],
+    gym_cycle_times: Dict[str, Optional[float]],  # secondes pour N reps
+    gym_unbroken: Dict[str, Optional[int]],
+    mono_row_times: Dict[str, Optional[float]],   # 500m, 2k, 5k en s
+    mono_run_times: Dict[str, Optional[float]],   # 100m, 400m, 1600m, 5k en s
+    mono_bike_ftp_w: Optional[float],
+    mono_swim_times: Dict[str, Optional[float]],  # 50/100/200m en s
+) -> AthleteCapabilities:
+    # --- Haltéro ---
+    one_rm = {k: v for k, v in lifts_1rm.items() if v}
+
+    # --- Gym : convertir temps de “20 reps” en s/rep si fourni, sinon dériver d’unbroken ---
+    gym: Dict[str, GymSkill] = {}
+    def cycle_from_block(total_reps, total_time_s, fallback_s=1.5):
+        if (total_reps or 0) > 0 and (total_time_s or 0) > 0:
+            return total_time_s / total_reps
+        return fallback_s
+
+    gym["pull-up"]  = GymSkill(cycle_s=cycle_from_block(20, gym_cycle_times.get("20PU")),  unbroken_cap=gym_unbroken.get("PU", 10) or 10)
+    gym["TTB"]      = GymSkill(cycle_s=cycle_from_block(20, gym_cycle_times.get("20TTB"), 2.0), unbroken_cap=gym_unbroken.get("TTB", 8) or 8)
+    gym["HSPU"]     = GymSkill(cycle_s=cycle_from_block(20, gym_cycle_times.get("20HSPU"), 2.0), unbroken_cap=gym_unbroken.get("HSPU", 6) or 6)
+    gym["BMU"]      = GymSkill(cycle_s=cycle_from_block(10, gym_cycle_times.get("10BMU"), 3.0), unbroken_cap=gym_unbroken.get("BMU", 3) or 3)
+    gym["RMU"]      = GymSkill(cycle_s=cycle_from_block(5,  gym_cycle_times.get("5RMU"),  4.0), unbroken_cap=gym_unbroken.get("RMU", 2) or 2)
+    gym["DU"]       = GymSkill(cycle_s=cycle_from_block(60, gym_cycle_times.get("60DU"),  0.5), unbroken_cap=gym_unbroken.get("DU", 100) or 100)
+    gym["WB"]       = GymSkill(cycle_s=cycle_from_block(20, gym_cycle_times.get("20WB"),  2.2), unbroken_cap=gym_unbroken.get("WB", 30) or 30)
+    # Handstand walk 15 m → vitesse m/s
+    if gym_cycle_times.get("HSW15m"):
+        gym["HSW15m"] = GymSkill(cycle_s=gym_cycle_times["HSW15m"]/15.0, unbroken_cap=15)  # cap en “m”
+
+    # --- Cardio : CP/W′ ou CS/D′ ---
+    cardio: Dict[str, CPProfile] = {}
+
+    # Rower (W) — si tu as 2k et 5k on peut approximer CP en puissance moy.
+    # Pour rester simple: CP ≈ P_5k ; W′ ≈ (P_2k - CP) * t_crit (pragm.)
+    if mono_row_times.get("2k") and mono_row_times.get("5k"):
+        t2k, t5k = mono_row_times["2k"], mono_row_times["5k"]
+        # Puissances moyennes approximatives en W avec coefficient ergo (à raffiner plus tard)
+        # Ici on peut laisser vide si pas de calibration ergo disponible.
+
+    # Bike
+    cp_bike = ftp_to_cp(mono_bike_ftp_w)
+    if cp_bike:
+        cardio["bike"] = CPProfile(cp=cp_bike, w_prime=12000.0)  # 12 kJ par défaut (à calibrer)
+
+    # Run (CS/D′) : utiliser (400m, 1600m) si présents ; fallback (1600m, 5k)
+    run_pairs = [
+        (400, mono_run_times.get("400m"), 1600, mono_run_times.get("1600m")),
+        (1600, mono_run_times.get("1600m"), 5000, mono_run_times.get("5k")),
+    ]
+    for d1, t1, d2, t2 in run_pairs:
+        if t1 and t2:
+            cs, dprime = two_points_to_cs_dprime(d1, t1, d2, t2)
+            if cs and dprime is not None:
+                cardio["run"] = CPProfile(cp=cs, w_prime=dprime)
+                break
+
+    # Swim (CS/D′) : (100m, 200m) si possible
+    if mono_swim_times.get("100m") and mono_swim_times.get("200m"):
+        cs, dprime = two_points_to_cs_dprime(100, mono_swim_times["100m"], 200, mono_swim_times["200m"])
+        if cs and dprime is not None:
+            cardio["swim"] = CPProfile(cp=cs, w_prime=dprime)
+
+    return AthleteCapabilities(
+        body_mass_kg=body_mass_kg,
+        one_rm=one_rm,
+        gym=gym,
+        cardio=cardio,
+    )
+
+Fatigue & récupération (moteur)
+
+Cardio W′bal : pendant un segment “monostructurel”, si puissance/cadence demandée > CP, on débite W′ ; en-dessous de CP, on recharge W′ (exponentiel simple).
+
+Local musculaire : chaque mouvement incrémente des buckets (pull/push/hinge/squat/core/grip). La cadence gym/haltéro devient :
+
+cycle_effective = cycle_fresh * (1 + fatigue_local * slope)
+unbroken_effective = floor(unbroken_fresh * (1 - set_decay * fatigue_local))
+
+
+(avec fatigue_local ∈ [0, 1.5] défini par une cinétique repos/surcharge).
+
+Ces logiques remplacent tes multiplicateurs “strength/endurance/fatigue_resistance”.
+
+Stratégie pilotée par l’RPE
+
+RPE jour (0–10) → on contraint :
+
+%1RM max autorisé pour les sets sans échec (ex: RPE 6 → ≤75 % 1RM),
+
+taille de set initiale (ex: RPE 7 → 85 % du “unbroken_effective”),
+
+seuil W′bal mini (on ne descend pas sous X % pour éviter l’explosion),
+
+repos planifié (plus RPE bas → plus de micro-repos).
+
+# strategy2.py
+from dataclasses import dataclass
+
+@dataclass
+class RPEPolicy:
+    max_pct_1rm: float      # ex: 0.75 à RPE 6
+    set_fraction: float     # ex: 0.85 → on coupe les sets
+    wprime_floor: float     # ex: 0.25 → on garde ≥25% W′
+    min_rest_s: float       # micro rest
+
+def policy_from_rpe(rpe: int) -> RPEPolicy:
+    rpe = max(0, min(10, rpe))
+    return RPEPolicy(
+        max_pct_1rm = 0.60 + 0.04*rpe,             # 0.60→1.00
+        set_fraction = 0.65 + 0.035*rpe,           # 0.65→1.00
+        wprime_floor = 0.45 - 0.02*rpe,            # 0.45→0.25
+        min_rest_s = 3.0 + (7 - rpe)*0.8           # RPE bas → + repos
+    )
+
+Intégration minimal-invasive à ton code actuel
+
+Remplacer l’ancienne classe Athlete par un wrapper fin : elle contient désormais AthleteCapabilities, ContextParams, DayState, et expose des helpers (barbell_rep_time(load,lift), gym_cycle(skill), cp_for(modality)…), mais ne stocke plus strength/endurance/fatigue_resistance.
+
+Simulator :
+
+ajoute state.wprime_bal par modalité,
+
+ajoute state.local_fatigue par bucket,
+
+pendant simulate(), chaque segment met à jour ces états et calcule temps/rep depuis les profils.
+
+Strategy : utilise RPEPolicy pour dimensionner sets/rep scheme et repos planifiés, et vérifie la contrainte W′bal.
+
+Exemple d’usage (interface UI)
+
+Tu récupères tes inputs UI (les tiens).
+
+Tu appelles ui_to_capabilities(...).
+
+Tu construis Athlete(capabilities, ctx, day) (wrapper).
+
+policy = policy_from_rpe(day.rpe_intended), strategy = Fractioned(policy) (ou autre).
+
+simulate(wod, athlete, strategy).
+
+Pourquoi c’est mieux (pragmatique)
+
+Interprétable : tout est en kg, s, W, m/s.
+
+Extensible : on peut brancher VBT, vrais modèles ergo, meilleures régressions pour CP, etc.
+
+Robuste aux WODs mixtes : W′bal + fatigue locale expliquent bien “je craque sur les C2B après des thrusters”.
+
+Étapes de migration (rapides)
+
+Ajouter capabilities.py, builder.py, strategy2.py.
+
+Mettre Athlete en wrapper (déprécier strength/endurance/...).
+
+Adapter simulator pour consommer capabilities + W′bal + buckets locaux.
+
+Ajouter policy_from_rpe et un mapping simple RPE→paramètres.
+
+Écrire 3 tests de non-régression (un WOD haltéro dominant, un gym dominant, un monostructurel).
+
+Si tu veux, je te rédige les patches pour tes fichiers actuels (simulator/strategy/athlete) et un exemple complet (WOD “Fran” + athlète + stratégie RPE 7) que tu peux exécuter tel quel.
