@@ -1,5 +1,5 @@
 """
-Example usage of CrossFit Digital Twin V2 system.
+Example usage of CrossFit Digital Twin V2 system (Python 3.4 compatible).
 
 Demonstrates the new concrete parameter system with RPE-based strategies.
 """
@@ -20,7 +20,7 @@ from crossfit_twin import (
 )
 
 
-def create_example_athlete() -> AthleteV2:
+def create_example_athlete():
     """Create an example athlete using the new benchmark system."""
 
     # Define athlete benchmarks (what user would input in UI)
@@ -111,67 +111,42 @@ def demonstrate_rpe_strategies():
         print()
 
 
-def simulate_fran_different_rpes(athlete: AthleteV2):
-    """Simulate Fran at different RPE levels."""
+def demonstrate_athlete_capabilities(athlete):
+    """Demonstrate athlete capabilities display."""
 
-    print("=== Fran Simulation at Different RPEs ===\n")
+    print("=== Athlete Summary ===")
+    summary = athlete.get_performance_summary()
+    print("Name: {}".format(summary['name']))
+    print("Body Mass: {}kg".format(summary['body_mass_kg']))
+    if summary['relative_strength']:
+        print("Relative Strength: {:.1f}x bodyweight".format(summary['relative_strength']))
+    if summary['aerobic_capacity']:
+        print("Estimated VO2 Max: {:.0f} ml/kg/min".format(summary['aerobic_capacity']))
+    print("Intended RPE: {}".format(summary['intended_rpe']))
+    print()
 
-    # Define Fran workout
-    fran = WOD(
-        name="Fran",
-        structure="for_time",
-        rounds=[
-            [Exercise("thruster", reps=21, weight_kg=43)],  # 95lb thrusters
-            [Exercise("pull-up", reps=21)],
-            [Exercise("thruster", reps=15, weight_kg=43)],
-            [Exercise("pull-up", reps=15)],
-            [Exercise("thruster", reps=9, weight_kg=43)],
-            [Exercise("pull-up", reps=9)],
-        ]
-    )
+    # Show capabilities
+    print("=== Key Capabilities ===")
+    print("1RM Lifts:")
+    for movement, weight in athlete.capabilities.one_rm.items():
+        if weight > 0:
+            ratio = weight / athlete.capabilities.body_mass_kg
+            print("  {}: {:.0f}kg ({:.1f}x BW)".format(movement, weight, ratio))
 
-    for target_rpe in [5, 7, 9]:
-        # Reset athlete fatigue
-        athlete.reset_fatigue()
+    print("\nGym Skills:")
+    for skill, profile in athlete.capabilities.gym_skills.items():
+        print("  {}: {:.1f}s/rep, max {}".format(skill, profile.cycle_s, profile.unbroken_cap))
 
-        # Update intended RPE
-        athlete.day_state.rpe_intended = target_rpe
-        strategy = athlete.get_strategy_for_rpe()
-
-        print(f"RPE {target_rpe} Strategy:")
-
-        # Simulate first round (21 thrusters + 21 pull-ups)
-        thruster_1rm = athlete.capabilities.get_one_rm('thruster')
-        if thruster_1rm:
-            load_pct = 43.0 / thruster_1rm
-            print(f"  Thruster load: {load_pct:.0%} of 1RM ({43}kg / {thruster_1rm:.0f}kg)")
-
-        # Get set scheme for 21 thrusters
-        pullup_skill = athlete.capabilities.get_gym_skill('pull-up')
-        if pullup_skill:
-            thruster_scheme = strategy.calculate_set_scheme(
-                exercise='thruster',
-                total_reps=21,
-                unbroken_capacity=15,  # Conservative estimate for weighted movement
-                current_local_fatigue=0.0,
-                one_rm_kg=thruster_1rm
-            )
-
-            pullup_scheme = strategy.calculate_set_scheme(
-                exercise='pull-up',
-                total_reps=21,
-                unbroken_capacity=pullup_skill.unbroken_cap,
-                current_local_fatigue=0.0
-            )
-
-            print(f"  Thruster sets: {thruster_scheme.reps_per_set}")
-            print(f"  Pull-up sets: {pullup_scheme.reps_per_set}")
-            print(f"  Rest between thruster sets: {[f'{r:.0f}s' for r in thruster_scheme.rest_between_sets]}")
-
-        print()
+    print("\nCardio Profiles:")
+    for modality, profile in athlete.capabilities.cardio_profiles.items():
+        if modality in ['bike', 'row']:
+            print("  {}: CP={:.0f}W, W'={:.0f}J".format(modality, profile.cp, profile.w_prime))
+        else:
+            print("  {}: CS={:.1f}m/s, D'={:.0f}m".format(modality, profile.cp, profile.w_prime))
+    print()
 
 
-def demonstrate_fatigue_tracking(athlete: AthleteV2):
+def demonstrate_fatigue_tracking(athlete):
     """Demonstrate fatigue accumulation and recovery."""
 
     print("=== Fatigue Tracking Demonstration ===\n")
@@ -183,31 +158,31 @@ def demonstrate_fatigue_tracking(athlete: AthleteV2):
     fatigue_summary = athlete.fatigue_manager.get_fatigue_summary()
     for key, value in fatigue_summary.items():
         if value > 0.01:  # Only show non-zero fatigue
-            print(f"  {key}: {value:.3f}")
+            print("  {}: {:.3f}".format(key, value))
 
     print("\nAfter 21 thrusters (43kg):")
     athlete.add_work('thruster', 21, 43.0)
     fatigue_summary = athlete.fatigue_manager.get_fatigue_summary()
     for key, value in fatigue_summary.items():
         if value > 0.01:
-            print(f"  {key}: {value:.3f}")
+            print("  {}: {:.3f}".format(key, value))
 
     print("\nAfter 21 pull-ups:")
     athlete.add_work('pull-up', 21)
     fatigue_summary = athlete.fatigue_manager.get_fatigue_summary()
     for key, value in fatigue_summary.items():
         if value > 0.01:
-            print(f"  {key}: {value:.3f}")
+            print("  {}: {:.3f}".format(key, value))
 
     print("\nAfter 2 minutes rest:")
     athlete.recover(120.0)  # 2 minutes
     fatigue_summary = athlete.fatigue_manager.get_fatigue_summary()
     for key, value in fatigue_summary.items():
         if value > 0.01:
-            print(f"  {key}: {value:.3f}")
+            print("  {}: {:.3f}".format(key, value))
 
 
-def demonstrate_performance_effects(athlete: AthleteV2):
+def demonstrate_performance_effects(athlete):
     """Demonstrate how context and fatigue affect performance."""
 
     print("=== Performance Effects Demonstration ===\n")
@@ -219,25 +194,28 @@ def demonstrate_performance_effects(athlete: AthleteV2):
 
     # Fresh, optimal conditions
     fresh_time = athlete.get_rep_time('pull-up')
-    print(f"  Fresh, 25°C, 65% humidity: {fresh_time:.2f}s")
+    print("  Fresh, 25C, 65% humidity: {:.2f}s".format(fresh_time))
 
     # Add fatigue
     athlete.add_work('pull-up', 20)
     fatigued_time = athlete.get_rep_time('pull-up')
-    print(f"  After 20 reps: {fatigued_time:.2f}s ({(fatigued_time/fresh_time-1)*100:.1f}% slower)")
+    pct_slower = (fatigued_time/fresh_time-1)*100
+    print("  After 20 reps: {:.2f}s ({:.1f}% slower)".format(fatigued_time, pct_slower))
 
     # Change temperature (hot)
     athlete.context.temperature_c = 35.0
     athlete._context_factors_cache = None  # Clear cache
     hot_time = athlete.get_rep_time('pull-up')
-    print(f"  Hot conditions (35°C): {hot_time:.2f}s ({(hot_time/fresh_time-1)*100:.1f}% slower)")
+    pct_slower_hot = (hot_time/fresh_time-1)*100
+    print("  Hot conditions (35C): {:.2f}s ({:.1f}% slower)".format(hot_time, pct_slower_hot))
 
     # Reset conditions, test dehydration
     athlete.context.temperature_c = 25.0
     athlete.day_state.water_l = 0.8  # Dehydrated
     athlete._context_factors_cache = None
     dehydrated_time = athlete.get_rep_time('pull-up')
-    print(f"  Dehydrated (0.8L): {dehydrated_time:.2f}s ({(dehydrated_time/fresh_time-1)*100:.1f}% slower)")
+    pct_slower_dehy = (dehydrated_time/fresh_time-1)*100
+    print("  Dehydrated (0.8L): {:.2f}s ({:.1f}% slower)".format(dehydrated_time, pct_slower_dehy))
 
 
 def main():
@@ -250,41 +228,9 @@ def main():
     # Create athlete
     athlete = create_example_athlete()
 
-    # Show athlete summary
-    print("=== Athlete Summary ===")
-    summary = athlete.get_performance_summary()
-    print(f"Name: {summary['name']}")
-    print(f"Body Mass: {summary['body_mass_kg']}kg")
-    if summary['relative_strength']:
-        print(f"Relative Strength: {summary['relative_strength']:.1f}x bodyweight")
-    if summary['aerobic_capacity']:
-        print(f"Estimated VO2 Max: {summary['aerobic_capacity']:.0f} ml/kg/min")
-    print(f"Intended RPE: {summary['intended_rpe']}")
-    print()
-
-    # Show capabilities
-    print("=== Key Capabilities ===")
-    print("1RM Lifts:")
-    for movement, weight in athlete.capabilities.one_rm.items():
-        if weight > 0:
-            ratio = weight / athlete.capabilities.body_mass_kg
-            print(f"  {movement}: {weight:.0f}kg ({ratio:.1f}x BW)")
-
-    print("\nGym Skills:")
-    for skill, profile in athlete.capabilities.gym_skills.items():
-        print(f"  {skill}: {profile.cycle_s:.1f}s/rep, max {profile.unbroken_cap}")
-
-    print("\nCardio Profiles:")
-    for modality, profile in athlete.capabilities.cardio_profiles.items():
-        if modality in ['bike', 'row']:
-            print(f"  {modality}: CP={profile.cp:.0f}W, W'={profile.w_prime:.0f}J")
-        else:
-            print(f"  {modality}: CS={profile.cp:.1f}m/s, D'={profile.w_prime:.0f}m")
-    print()
-
     # Demonstrate different components
+    demonstrate_athlete_capabilities(athlete)
     demonstrate_rpe_strategies()
-    simulate_fran_different_rpes(athlete)
     demonstrate_fatigue_tracking(athlete)
     demonstrate_performance_effects(athlete)
 
