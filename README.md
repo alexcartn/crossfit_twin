@@ -38,6 +38,12 @@ A comprehensive Python library for simulating CrossFit athlete performance using
 - **Visual Analytics**: RPE strategies, fatigue monitoring, performance comparison
 - **Multi-page Navigation**: Organized workflow from athlete creation to simulation
 
+### 🧠 **Advanced Optimization** *(New)*
+- **Strategy Solver**: Goal-based strategy generation for specific time targets
+- **Operational Analysis**: What-if analysis for cycle times, transitions, micro-rest
+- **Clone Optimization**: Robust strategy testing across parameter variations
+- **Statistical Confidence**: Risk assessment and performance distributions
+
 ---
 
 ## 📦 Installation
@@ -189,6 +195,30 @@ easy_strategy = create_rpe_strategy(5)
 comp_strategy = create_rpe_strategy(9)
 ```
 
+### Example 4: Advanced Optimization *(New)*
+```python
+from crossfit_twin import StrategySolver, OperationalAnalyzer, CloneOptimizer
+from crossfit_twin.workout import FamousWODs
+
+# Goal-based strategy for target time
+wod = FamousWODs.FRAN()
+solver = StrategySolver(athlete, wod)
+solutions = solver.solve_for_time_target(target_seconds=210)  # 3:30 target
+
+# What-if analysis for performance optimization
+analyzer = OperationalAnalyzer(athlete, wod)
+cycle_result = analyzer.analyze_cycle_time_variation(-0.10)  # 10% faster
+
+# Robust optimization across parameter variations
+optimizer = CloneOptimizer(athlete)
+robust_strategy = optimizer.optimize_for_target(
+    wod=wod,
+    target_time_s=210,
+    parameter_variations={'strength': 0.10, 'cardio': 0.08},
+    confidence_level=0.90
+)
+```
+
 ---
 
 ## 🌐 Web Interface
@@ -227,10 +257,28 @@ comp_strategy = create_rpe_strategy(9)
 - **Performance Analysis**: Detailed results and comparison
 - **Strategy Testing**: Compare different RPE approaches
 
-#### 📊 **Performance Comparison**
+#### 📊 **Performance Analysis**
 - **Multi-athlete Analysis**: Compare different athlete profiles
 - **RPE Comparison**: Same athlete at different effort levels
 - **Historical Tracking**: Performance trends over time
+
+#### 🎯 **Strategy Solver** *(Advanced)*
+- **Time-based Objectives**: Input target times for specific workouts
+- **Smart Strategy Generation**: Optimal rep schemes and rest periods
+- **Multiple Candidates**: Different approaches to hit your target time
+- **Confidence Scoring**: Likelihood assessment for each strategy
+
+#### 🔍 **Operational Analysis** *(Advanced)*
+- **What-if Analysis**: Test cycle time, transition, and micro-rest variations
+- **Parameter Impact**: See exact performance effects of operational changes
+- **Performance Optimization**: Find the most impactful areas for improvement
+- **Interactive Visualizations**: Bar charts and comparison plots
+
+#### 🧬 **Clone Optimization** *(Advanced)*
+- **Robust Strategy Testing**: Test across parameter variations
+- **Competition Day Variability**: Account for capability variations on race day
+- **Statistical Confidence**: Set confidence levels for strategy success
+- **Performance Distribution**: Visualize strategy robustness across athlete clones
 
 ---
 
@@ -255,10 +303,11 @@ comp_strategy = create_rpe_strategy(9)
 | Traditional Approach | CrossFit Digital Twin |
 |---------------------|----------------------|
 | Generic workout plans | Personalized based on real benchmarks |
-| Trial and error pacing | RPE-driven strategy optimization |
-| Simple fatigue tracking | Advanced physiological models |
-| Fixed strategies | Dynamic adaptation to athlete state |
+| Trial and error pacing | RPE-driven strategy optimization + goal-based solving |
+| Simple fatigue tracking | Advanced physiological models (W'bal + local fatigue) |
+| Fixed strategies | Dynamic adaptation + robust optimization |
 | Abstract parameters | Concrete, measurable inputs |
+| Guesswork for competition | Statistical confidence and what-if analysis |
 
 ---
 
@@ -271,6 +320,12 @@ comp_strategy = create_rpe_strategy(9)
 - `athlete_v2.py` - Main athlete system
 - `fatigue_models.py` - W'bal + local muscle fatigue
 - `rpe_strategy.py` - RPE-based strategy selection
+
+### **Advanced Optimization Modules** *(New)*
+- `strategy_solver.py` - Goal-based strategy generation and time targeting
+- `operational_whatif.py` - What-if analysis for operational parameters
+- `clone_optimization.py` - Robust optimization across parameter variations
+- `sensitivity_analysis.py` - Systematic parameter sensitivity testing
 
 ### **Legacy Support**
 - Original simulation engine still available
