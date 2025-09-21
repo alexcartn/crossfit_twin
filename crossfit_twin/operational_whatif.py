@@ -93,8 +93,8 @@ class OperationalAnalyzer:
 
         # Extract movements from WOD
         movements = set()
-        for round_exercises in wod.rounds:
-            for exercise in round_exercises:
+        for round_obj in wod.rounds:
+            for exercise in round_obj.exercises:
                 movements.add(exercise.name)
 
         # Movement-specific cycle time parameters
@@ -247,8 +247,8 @@ class OperationalAnalyzer:
 
         # Count total reps for this movement
         total_reps = 0
-        for round_exercises in wod.rounds:
-            for exercise in round_exercises:
+        for round_obj in wod.rounds:
+            for exercise in round_obj.exercises:
                 if exercise.name == delta.parameter.movement:
                     total_reps += exercise.reps
 
@@ -289,8 +289,8 @@ class OperationalAnalyzer:
 
         # Count reps for this movement
         total_reps = 0
-        for round_exercises in wod.rounds:
-            for exercise in round_exercises:
+        for round_obj in wod.rounds:
+            for exercise in round_obj.exercises:
                 if exercise.name == delta.parameter.movement:
                     total_reps += exercise.reps
 
@@ -441,8 +441,8 @@ class OperationalAnalyzer:
 
         movement = delta.parameter.movement
         total_reps = 0
-        for round_exercises in wod.rounds:
-            for exercise in round_exercises:
+        for round_obj in wod.rounds:
+            for exercise in round_obj.exercises:
                 if exercise.name == movement:
                     total_reps += exercise.reps
 

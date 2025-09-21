@@ -88,8 +88,8 @@ class CloneOptimizer:
 
         # Extract movements from WOD
         movements = set()
-        for round_exercises in wod.rounds:
-            for exercise in round_exercises:
+        for round_obj in wod.rounds:
+            for exercise in round_obj.exercises:
                 movements.add(exercise.name)
 
         # Cycle time variations (day-of performance variation)

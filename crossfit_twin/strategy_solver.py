@@ -149,11 +149,11 @@ class StrategySolver:
         candidates = []
 
         # Get base rep schemes for each exercise
-        for round_idx, round_exercises in enumerate(wod.rounds):
+        for round_idx, round_obj in enumerate(wod.rounds):
             rep_schemes = []
             transition_rests = []
 
-            for exercise_idx, exercise in enumerate(round_exercises):
+            for exercise_idx, exercise in enumerate(round_obj.exercises):
                 # Generate rep scheme variations
                 schemes = self._generate_rep_schemes(exercise, rpe_constraints, strategy_type)
 
@@ -164,7 +164,7 @@ class StrategySolver:
                 rep_schemes.append(schemes[0])
 
                 # Add transition rest
-                if exercise_idx < len(round_exercises) - 1:
+                if exercise_idx < len(round_obj.exercises) - 1:
                     transition_rests.append(rpe_constraints.min_rest_between_movements)
 
             if rep_schemes:

@@ -629,7 +629,7 @@ def create_strategy_solver_page():
                 candidates = solver.generate_candidate_strategies(wod, rpe_strategy.constraints)
 
                 # Find strategies that meet target
-                solutions = solver.solve_for_time_target(wod, target_seconds, tolerance_seconds=30)
+                solutions = solver.solve_for_target_time(wod, target_seconds, rpe_strategy.constraints)
 
             if solutions:
                 st.success(f"✅ Found {len(solutions)} viable strategies!")
@@ -640,37 +640,46 @@ def create_strategy_solver_page():
 
                 col1, col2, col3 = st.columns(3)
                 with col1:
-                    predicted_minutes = int(best_solution.predicted_time // 60)
-                    predicted_seconds = int(best_solution.predicted_time % 60)
+                    predicted_minutes = int(best_solution.actual_time // 60)
+                    predicted_seconds = int(best_solution.actual_time % 60)
                     st.metric("Predicted Time", f"{predicted_minutes}:{predicted_seconds:02d}")
 
                 with col2:
-                    st.metric("Strategy Type", best_solution.strategy_type.value.replace("_", " ").title())
+                    st.metric("Strategy Type", best_solution.strategy.strategy_type.value.replace("_", " ").title())
 
                 with col3:
-                    st.metric("Confidence", f"{best_solution.confidence_score:.1%}")
+                    st.metric("Success Probability", f"{best_solution.success_probability:.1%}")
 
                 # Show strategy details
                 with st.expander("📋 Strategy Details", expanded=True):
                     st.markdown("**Rep Schemes:**")
-                    for i, round_scheme in enumerate(best_solution.rep_schemes):
-                        st.markdown(f"**Round {i+1}:**")
-                        for rep_scheme in round_scheme:
-                            breakdown = " + ".join(map(str, rep_scheme.set_breakdown))
-                            rest_info = f"Rest: {rep_scheme.total_rest_time:.0f}s" if rep_scheme.total_rest_time > 0 else "Unbroken"
-                            st.text(f"  {rep_scheme.exercise_name}: {breakdown} ({rest_info})")
+                    for i, rep_scheme in enumerate(best_solution.strategy.rep_schemes):
+                        breakdown = " + ".join(map(str, rep_scheme.set_breakdown))
+                        rest_info = f"Rest: {rep_scheme.total_rest_time:.0f}s" if rep_scheme.total_rest_time > 0 else "Unbroken"
+                        st.text(f"  {rep_scheme.exercise_name}: {breakdown} ({rest_info})")
+
+                    if best_solution.bottlenecks:
+                        st.markdown("**⚠️ Potential Bottlenecks:**")
+                        for bottleneck in best_solution.bottlenecks:
+                            st.text(f"  • {bottleneck}")
+
+                    if best_solution.recommendations:
+                        st.markdown("**💡 Recommendations:**")
+                        for rec in best_solution.recommendations:
+                            st.text(f"  • {rec}")
 
                 # Show all solutions
                 if len(solutions) > 1:
                     with st.expander(f"📊 All {len(solutions)} Solutions", expanded=False):
                         solutions_data = []
                         for sol in solutions:
-                            pred_time = f"{int(sol.predicted_time//60)}:{int(sol.predicted_time%60):02d}"
+                            pred_time = f"{int(sol.actual_time//60)}:{int(sol.actual_time%60):02d}"
+                            total_rest = sum(rs.total_rest_time for rs in sol.strategy.rep_schemes)
                             solutions_data.append({
-                                "Strategy Type": sol.strategy_type.value.replace("_", " ").title(),
+                                "Strategy Type": sol.strategy.strategy_type.value.replace("_", " ").title(),
                                 "Predicted Time": pred_time,
-                                "Confidence": f"{sol.confidence_score:.1%}",
-                                "Total Rest": f"{sum(sum(rs.total_rest_time for rs in round_schemes) for round_schemes in sol.rep_schemes):.0f}s"
+                                "Success Rate": f"{sol.success_probability:.1%}",
+                                "Total Rest": f"{total_rest:.0f}s"
                             })
 
                         df = pd.DataFrame(solutions_data)
