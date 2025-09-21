@@ -132,6 +132,13 @@ class StrategySolver:
         for candidate in candidates:
             if self._check_feasibility(candidate):
                 feasible_candidates.append(candidate)
+            # If no candidates are feasible, we'll be more lenient below
+
+        # If no feasible candidates found, return the best unfeasible ones for strategy exploration
+        if not feasible_candidates and candidates:
+            # Sort unfeasible candidates by risk score and return some for user feedback
+            candidates.sort(key=lambda c: (c.risk_score, c.estimated_time))
+            return candidates[:min(3, len(candidates))]  # Return a few for exploration
 
         # Sort by estimated risk and time
         feasible_candidates.sort(key=lambda c: (c.risk_score, c.estimated_time))
@@ -222,6 +229,25 @@ class StrategySolver:
             target_cycle_time = gym_skill.cycle_s
         elif one_rm and load_kg:
             target_cycle_time = self.athlete.capabilities.barbell_profile.rep_time(load_kg, one_rm)
+        else:
+            # Fallback cycle times for common exercises
+            fallback_cycles = {
+                'thruster': 2.5,
+                'pull-up': 2.0,
+                'kettlebell-swing': 1.5,
+                'burpee': 4.0,
+                'wall-ball': 2.2,
+                'box-jump': 1.8,
+                'deadlift': 2.8,
+                'clean': 3.5,
+                'snatch': 4.0,
+                'push-up': 1.5,
+                'sit-up': 1.2,
+                'air-squat': 1.0,
+                'run': 1.0,  # per meter
+                'row': 1.0   # per meter
+            }
+            target_cycle_time = fallback_cycles.get(exercise.name, 2.0)
 
         # Get unbroken capacity
         unbroken_cap = exercise.reps  # Default: do all reps
@@ -229,6 +255,23 @@ class StrategySolver:
             current_fatigue = self.athlete.fatigue_manager.get_movement_fatigue(exercise.name)
             effective_cap = gym_skill.effective_unbroken_cap(current_fatigue)
             unbroken_cap = min(exercise.reps, int(effective_cap * rpe_constraints.max_set_fraction))
+        else:
+            # Fallback estimates for common exercises when gym skill not available
+            fallback_caps = {
+                'thruster': min(15, exercise.reps),
+                'pull-up': min(12, exercise.reps),
+                'kettlebell-swing': min(21, exercise.reps),
+                'burpee': min(10, exercise.reps),
+                'wall-ball': min(20, exercise.reps),
+                'box-jump': min(20, exercise.reps),
+                'deadlift': min(15, exercise.reps),
+                'clean': min(8, exercise.reps),
+                'snatch': min(5, exercise.reps),
+                'push-up': min(20, exercise.reps),
+                'sit-up': min(30, exercise.reps),
+                'air-squat': min(40, exercise.reps)
+            }
+            unbroken_cap = fallback_caps.get(exercise.name, min(10, exercise.reps))
 
         # Generate set breakdowns based on strategy type
         set_breakdowns = self._get_set_breakdowns(
@@ -408,18 +451,20 @@ class StrategySolver:
                 effective_cap = gym_skill.effective_unbroken_cap(current_fatigue)
 
                 for set_size in scheme.set_breakdown:
-                    if set_size > effective_cap * 1.2:  # Allow 20% overage
+                    # More lenient check - allow up to 50% overage for strategy exploration
+                    if set_size > effective_cap * 1.5:
                         feasible = False
                         notes.append(f"{scheme.exercise_name}: Set size {set_size} exceeds capacity {effective_cap:.0f}")
 
-            # Check load against 1RM
+            # Check load against 1RM - more lenient
             if scheme.load_kg:
                 one_rm = self.athlete.capabilities.get_one_rm(scheme.exercise_name)
                 if one_rm:
                     intensity = scheme.load_kg / one_rm
-                    if intensity > candidate.rpe_policy.max_load_pct:
+                    # Allow up to 95% 1RM instead of strict RPE limits for strategy exploration
+                    if intensity > 0.95:
                         feasible = False
-                        notes.append(f"{scheme.exercise_name}: Load {intensity:.0%} exceeds RPE limit {candidate.rpe_policy.max_load_pct:.0%}")
+                        notes.append(f"{scheme.exercise_name}: Load {intensity:.0%} exceeds 95% 1RM limit")
 
         candidate.feasibility_notes = notes
         return feasible
