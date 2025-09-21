@@ -22,6 +22,10 @@ from crossfit_twin import (
     create_rpe_strategy, RPELevel, RPEStrategy,
     FatigueManager, MovementPattern,
 
+    # Advanced optimization features
+    StrategySolver, OperationalAnalyzer, CloneOptimizer,
+    _advanced_features_available,
+
     # Legacy system (for WODs)
     WOD, Exercise, simulate
 )
@@ -702,6 +706,374 @@ def create_workout_simulation():
             st.plotly_chart(fig, use_container_width=True)
 
 
+def create_strategy_solver_page():
+    """Create strategy solver interface for time-based objectives."""
+    if not _advanced_features_available:
+        st.error("❌ Advanced optimization features not available")
+        st.info("The StrategySolver module could not be imported.")
+        return
+
+    if not st.session_state.athlete:
+        st.warning("⚠️ Please create an athlete first in the Athlete Builder.")
+        return
+
+    st.subheader("🎯 Strategy Solver")
+    st.markdown("Generate optimal strategies to hit specific time targets for workouts.")
+
+    # Workout selection for strategy solving
+    col1, col2 = st.columns([2, 1])
+
+    with col1:
+        target_workout = st.selectbox(
+            "Choose workout for strategy optimization:",
+            ["Fran", "Helen", "Grace", "Isabel", "Cindy", "Amanda", "Diane"]
+        )
+
+    with col2:
+        target_time_input = st.text_input(
+            "Target time (mm:ss):",
+            placeholder="e.g., 3:30",
+            help="Enter your goal time for this workout"
+        )
+
+    if target_time_input and st.button("🔍 Generate Strategy", type="primary"):
+        try:
+            # Parse target time
+            if ":" in target_time_input:
+                minutes, seconds = target_time_input.split(":")
+                target_seconds = int(minutes) * 60 + int(seconds)
+            else:
+                target_seconds = float(target_time_input)
+
+            with st.spinner(f"Generating strategy for {target_workout} in {target_time_input}..."):
+                # Get the workout
+                wod = getattr(FamousWODs, target_workout.upper())()
+
+                # Create strategy solver
+                solver = StrategySolver(st.session_state.athlete, wod)
+
+                # Generate candidate strategies
+                candidates = solver.generate_candidate_strategies()
+
+                # Find strategies that meet target
+                solutions = solver.solve_for_time_target(target_seconds, tolerance_seconds=30)
+
+            if solutions:
+                st.success(f"✅ Found {len(solutions)} viable strategies!")
+
+                # Display best solution
+                best_solution = solutions[0]
+                st.markdown(f"### 🏆 Recommended Strategy")
+
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    predicted_minutes = int(best_solution.predicted_time // 60)
+                    predicted_seconds = int(best_solution.predicted_time % 60)
+                    st.metric("Predicted Time", f"{predicted_minutes}:{predicted_seconds:02d}")
+
+                with col2:
+                    st.metric("Strategy Type", best_solution.strategy_type.value.replace("_", " ").title())
+
+                with col3:
+                    st.metric("Confidence", f"{best_solution.confidence_score:.1%}")
+
+                # Show strategy details
+                with st.expander("📋 Strategy Details", expanded=True):
+                    st.markdown("**Rep Schemes:**")
+                    for i, round_scheme in enumerate(best_solution.rep_schemes):
+                        st.markdown(f"**Round {i+1}:**")
+                        for rep_scheme in round_scheme:
+                            breakdown = " + ".join(map(str, rep_scheme.set_breakdown))
+                            rest_info = f"Rest: {rep_scheme.total_rest_time:.0f}s" if rep_scheme.total_rest_time > 0 else "Unbroken"
+                            st.text(f"  {rep_scheme.exercise_name}: {breakdown} ({rest_info})")
+
+                # Show all solutions
+                if len(solutions) > 1:
+                    with st.expander(f"📊 All {len(solutions)} Solutions", expanded=False):
+                        solutions_data = []
+                        for sol in solutions:
+                            pred_time = f"{int(sol.predicted_time//60)}:{int(sol.predicted_time%60):02d}"
+                            solutions_data.append({
+                                "Strategy Type": sol.strategy_type.value.replace("_", " ").title(),
+                                "Predicted Time": pred_time,
+                                "Confidence": f"{sol.confidence_score:.1%}",
+                                "Total Rest": f"{sum(sum(rs.total_rest_time for rs in round_schemes) for round_schemes in sol.rep_schemes):.0f}s"
+                            })
+
+                        df = pd.DataFrame(solutions_data)
+                        st.dataframe(df, use_container_width=True)
+
+            else:
+                st.warning(f"⚠️ No viable strategies found for {target_time_input}")
+                st.info("💡 Try a more realistic target time or adjust your athlete's capabilities.")
+
+        except Exception as e:
+            st.error(f"❌ Error generating strategy: {str(e)}")
+
+
+def create_operational_analysis_page():
+    """Create operational what-if analysis interface."""
+    if not _advanced_features_available:
+        st.error("❌ Advanced optimization features not available")
+        st.info("The OperationalAnalyzer module could not be imported.")
+        return
+
+    if not st.session_state.athlete:
+        st.warning("⚠️ Please create an athlete first in the Athlete Builder.")
+        return
+
+    st.subheader("🔍 Operational Analysis")
+    st.markdown("Analyze how changes in cycle times, transitions, and micro-rest affect performance.")
+
+    # Workout selection
+    workout_name = st.selectbox(
+        "Choose workout for analysis:",
+        ["Fran", "Helen", "Grace", "Isabel", "Amanda", "Diane"]
+    )
+
+    # Parameter selection
+    st.markdown("### 🎛️ Parameters to Analyze")
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        analyze_cycle_times = st.checkbox("Cycle Times", value=True, help="How faster/slower reps affect performance")
+        if analyze_cycle_times:
+            cycle_variation = st.slider("Cycle time variation", -50, 50, 0, 5,
+                                      format="%d%%", help="% change from baseline")
+
+    with col2:
+        analyze_transitions = st.checkbox("Transitions", value=True, help="Time between exercises")
+        if analyze_transitions:
+            transition_variation = st.slider("Transition time variation", -50, 100, 0, 10,
+                                           format="%d%%", help="% change from baseline")
+
+    # Micro-rest analysis
+    analyze_microrest = st.checkbox("Micro-Rest Strategy", value=False,
+                                   help="Add small rests within exercises")
+    if analyze_microrest:
+        microrest_duration = st.slider("Micro-rest duration", 5, 30, 10, help="Seconds of rest to add")
+        microrest_frequency = st.slider("Micro-rest frequency", 5, 50, 20, help="Reps between micro-rests")
+
+    if st.button("🔍 Run Analysis", type="primary"):
+        try:
+            with st.spinner(f"Analyzing {workout_name} performance variations..."):
+                # Get the workout
+                wod = getattr(FamousWODs, workout_name.upper())()
+
+                # Create analyzer
+                analyzer = OperationalAnalyzer(st.session_state.athlete, wod)
+
+                # Run analysis based on selected parameters
+                results = []
+
+                if analyze_cycle_times:
+                    cycle_result = analyzer.analyze_cycle_time_variation(cycle_variation / 100.0)
+                    results.append(("Cycle Time", cycle_result))
+
+                if analyze_transitions:
+                    transition_result = analyzer.analyze_transition_variation(transition_variation / 100.0)
+                    results.append(("Transition", transition_result))
+
+                if analyze_microrest:
+                    microrest_result = analyzer.analyze_microrest_strategy(
+                        rest_duration_s=microrest_duration,
+                        rest_frequency_reps=microrest_frequency
+                    )
+                    results.append(("Micro-Rest", microrest_result))
+
+            # Display results
+            if results:
+                st.success("✅ Analysis completed!")
+
+                # Summary metrics
+                st.markdown("### 📊 Performance Impact Summary")
+
+                baseline_time = None
+                for param_name, result in results:
+                    if baseline_time is None and hasattr(result, 'baseline_time'):
+                        baseline_time = result.baseline_time
+
+                if baseline_time:
+                    baseline_min = int(baseline_time // 60)
+                    baseline_sec = int(baseline_time % 60)
+                    st.info(f"🎯 Baseline time: {baseline_min}:{baseline_sec:02d}")
+
+                # Results table
+                results_data = []
+                for param_name, result in results:
+                    if hasattr(result, 'modified_time'):
+                        time_diff = result.modified_time - baseline_time if baseline_time else 0
+                        modified_min = int(result.modified_time // 60)
+                        modified_sec = int(result.modified_time % 60)
+
+                        results_data.append({
+                            "Parameter": param_name,
+                            "Modified Time": f"{modified_min}:{modified_sec:02d}",
+                            "Time Difference": f"{time_diff:+.1f}s",
+                            "% Change": f"{(time_diff/baseline_time)*100:+.1f}%" if baseline_time else "N/A"
+                        })
+
+                if results_data:
+                    df = pd.DataFrame(results_data)
+                    st.dataframe(df, use_container_width=True)
+
+                    # Visualization
+                    if len(results_data) > 1:
+                        fig = px.bar(
+                            df, x="Parameter", y=[float(x.replace("s", "")) for x in df["Time Difference"]],
+                            title="Performance Impact by Parameter",
+                            labels={"y": "Time Difference (seconds)"}
+                        )
+                        st.plotly_chart(fig, use_container_width=True)
+
+        except Exception as e:
+            st.error(f"❌ Analysis error: {str(e)}")
+
+
+def create_clone_optimization_page():
+    """Create clone optimization interface."""
+    if not _advanced_features_available:
+        st.error("❌ Advanced optimization features not available")
+        st.info("The CloneOptimizer module could not be imported.")
+        return
+
+    if not st.session_state.athlete:
+        st.warning("⚠️ Please create an athlete first in the Athlete Builder.")
+        return
+
+    st.subheader("🧬 Clone Optimization")
+    st.markdown("Test strategies across variations of your athlete to find robust solutions.")
+
+    # Workout selection
+    workout_name = st.selectbox(
+        "Choose workout for optimization:",
+        ["Fran", "Helen", "Grace", "Isabel", "Amanda", "Diane"]
+    )
+
+    # Parameter variations
+    st.markdown("### 🔬 Parameter Variations")
+    st.markdown("Define how much your capabilities might vary on competition day:")
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        st.markdown("**Strength Variation:**")
+        strength_var = st.slider("1RM variation", 0, 20, 10, help="±% variation in strength")
+
+        st.markdown("**Cycle Time Variation:**")
+        cycle_var = st.slider("Cycle time variation", 0, 30, 15, help="±% variation in movement speed")
+
+    with col2:
+        st.markdown("**Cardio Variation:**")
+        cardio_var = st.slider("Cardio capacity variation", 0, 15, 8, help="±% variation in CP/W'")
+
+        st.markdown("**Daily State:**")
+        daily_var = st.slider("Daily readiness variation", 0, 20, 12, help="±% variation in daily form")
+
+    # Optimization settings
+    st.markdown("### ⚙️ Optimization Settings")
+
+    col1, col2 = st.columns(2)
+    with col1:
+        target_time_input = st.text_input("Target time (mm:ss):", placeholder="e.g., 4:00")
+        num_clones = st.slider("Number of clones", 10, 100, 50, help="More clones = more robust results")
+
+    with col2:
+        confidence_level = st.slider("Confidence level", 80, 99, 90, help="% of clones that should hit target")
+        max_strategies = st.slider("Max strategies to test", 3, 10, 5)
+
+    if target_time_input and st.button("🚀 Optimize Clones", type="primary"):
+        try:
+            # Parse target time
+            if ":" in target_time_input:
+                minutes, seconds = target_time_input.split(":")
+                target_seconds = int(minutes) * 60 + int(seconds)
+            else:
+                target_seconds = float(target_time_input)
+
+            with st.spinner(f"Optimizing {num_clones} clones for {workout_name}..."):
+                # Get the workout
+                wod = getattr(FamousWODs, workout_name.upper())()
+
+                # Create optimizer
+                optimizer = CloneOptimizer(st.session_state.athlete)
+
+                # Define parameter variations
+                variations = {
+                    'strength': strength_var / 100.0,
+                    'cycle_times': cycle_var / 100.0,
+                    'cardio': cardio_var / 100.0,
+                    'daily_state': daily_var / 100.0
+                }
+
+                # Run optimization
+                optimization_result = optimizer.optimize_for_target(
+                    wod=wod,
+                    target_time_s=target_seconds,
+                    parameter_variations=variations,
+                    num_clones=num_clones,
+                    confidence_level=confidence_level / 100.0,
+                    max_strategies=max_strategies
+                )
+
+            # Display results
+            if optimization_result and optimization_result.best_strategy:
+                st.success("✅ Clone optimization completed!")
+
+                # Best strategy summary
+                st.markdown("### 🏆 Optimal Robust Strategy")
+
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    success_rate = optimization_result.success_rate
+                    st.metric("Success Rate", f"{success_rate:.1%}")
+
+                with col2:
+                    avg_time = optimization_result.average_time
+                    avg_min = int(avg_time // 60)
+                    avg_sec = int(avg_time % 60)
+                    st.metric("Average Time", f"{avg_min}:{avg_sec:02d}")
+
+                with col3:
+                    time_std = optimization_result.time_std_dev
+                    st.metric("Time Std Dev", f"±{time_std:.1f}s")
+
+                # Strategy details
+                with st.expander("📋 Robust Strategy Details", expanded=True):
+                    best_strategy = optimization_result.best_strategy
+                    st.markdown(f"**Strategy Type:** {best_strategy.strategy_type.value.replace('_', ' ').title()}")
+
+                    # Show rep schemes for each round
+                    for i, round_scheme in enumerate(best_strategy.rep_schemes):
+                        st.markdown(f"**Round {i+1}:**")
+                        for rep_scheme in round_scheme:
+                            breakdown = " + ".join(map(str, rep_scheme.set_breakdown))
+                            rest_info = f"Rest: {rep_scheme.total_rest_time:.0f}s" if rep_scheme.total_rest_time > 0 else "Unbroken"
+                            st.text(f"  {rep_scheme.exercise_name}: {breakdown} ({rest_info})")
+
+                # Performance distribution
+                if hasattr(optimization_result, 'performance_distribution'):
+                    st.markdown("### 📈 Performance Distribution")
+
+                    times = optimization_result.performance_distribution
+                    fig = px.histogram(
+                        x=times, nbins=20,
+                        title=f"Time Distribution Across {num_clones} Clones",
+                        labels={"x": "Time (seconds)", "y": "Count"}
+                    )
+                    fig.add_vline(x=target_seconds, line_dash="dash", line_color="red",
+                                annotation_text="Target")
+                    st.plotly_chart(fig, use_container_width=True)
+
+            else:
+                st.warning("⚠️ No robust strategy found for the specified parameters")
+                st.info("💡 Try adjusting the target time, confidence level, or parameter variations.")
+
+        except Exception as e:
+            st.error(f"❌ Optimization error: {str(e)}")
+
+
 def main():
     """Main application."""
     initialize_session_state()
@@ -720,18 +1092,26 @@ def main():
     # Sidebar navigation
     with st.sidebar:
         st.markdown("## 🧭 Navigation")
-        page = st.selectbox(
-            "Choose a page:",
-            [
-                "🏠 Home",
-                "👤 Athlete Builder",
-                "🌡️ Environment & State",
-                "⚡ RPE Strategy",
-                "🔋 Fatigue Monitor",
-                "🏃 Simulation",
-                "📊 Performance Analysis"
-            ]
-        )
+        # Build navigation list with conditional advanced features
+        nav_pages = [
+            "🏠 Home",
+            "👤 Athlete Builder",
+            "🌡️ Environment & State",
+            "⚡ RPE Strategy",
+            "🔋 Fatigue Monitor",
+            "🏃 Simulation",
+            "📊 Performance Analysis"
+        ]
+
+        # Add advanced features if available
+        if _advanced_features_available:
+            nav_pages.extend([
+                "🎯 Strategy Solver",
+                "🔍 Operational Analysis",
+                "🧬 Clone Optimization"
+            ])
+
+        page = st.selectbox("Choose a page:", nav_pages)
 
         # Show athlete status
         if st.session_state.athlete:
@@ -855,6 +1235,15 @@ def main():
 
         else:
             st.info("🏃 Complete some simulations to see performance analysis!")
+
+    elif page == "🎯 Strategy Solver":
+        create_strategy_solver_page()
+
+    elif page == "🔍 Operational Analysis":
+        create_operational_analysis_page()
+
+    elif page == "🧬 Clone Optimization":
+        create_clone_optimization_page()
 
     # Footer
     st.markdown("---")
