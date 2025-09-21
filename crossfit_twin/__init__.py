@@ -19,7 +19,8 @@ from .simulator import simulate, SimulationResult
 # New system (v2) - recommended
 from .benchmarks import UIBenchmarks, parse_time_string, validate_benchmarks
 from .capabilities import AthleteCapabilities, BarbellProfile, CPProfile, GymSkill
-from .builder import build_athlete_from_benchmarks, estimate_missing_lifts
+from .builder import build_athlete_from_benchmarks, build_athlete_from_benchmarks_robust, estimate_missing_lifts
+from .fallback_system import DataProvenance, InferenceEngine, is_low_confidence_movement
 from .athlete_v2 import AthleteV2, ContextParams, DayState
 from .fatigue_models import FatigueManager, MovementPattern
 from .rpe_strategy import RPEStrategy, create_rpe_strategy, RPELevel
@@ -73,7 +74,13 @@ __all__.extend([
 
     # Builder
     "build_athlete_from_benchmarks",
+    "build_athlete_from_benchmarks_robust",
     "estimate_missing_lifts",
+
+    # Fallback system
+    "DataProvenance",
+    "InferenceEngine",
+    "is_low_confidence_movement",
 
     # New athlete system
     "AthleteV2",

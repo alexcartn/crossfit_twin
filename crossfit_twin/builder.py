@@ -8,6 +8,7 @@ from typing import Dict, Optional, Tuple, List
 import math
 from .benchmarks import UIBenchmarks, parse_time_string
 from .capabilities import AthleteCapabilities, BarbellProfile, CPProfile, GymSkill
+from .fallback_system import InferenceEngine, DataProvenance, apply_confidence_based_adjustments
 
 
 def ftp_to_critical_power(ftp_watts: float) -> float:
@@ -372,6 +373,113 @@ def build_athlete_from_benchmarks(
         gym_skills=gym_skills,
         cardio_profiles=cardio_profiles
     )
+
+
+def build_athlete_from_benchmarks_robust(
+    name: str,
+    body_mass_kg: float,
+    benchmarks: UIBenchmarks,
+    height_cm: Optional[float] = None,
+    barbell_profile: Optional[BarbellProfile] = None
+) -> AthleteCapabilities:
+    """
+    Build complete athlete capabilities with comprehensive fallback system.
+
+    Never fails due to missing data - uses intelligent inference and defaults.
+
+    Args:
+        name: Athlete name
+        body_mass_kg: Body mass in kg
+        benchmarks: UI benchmark inputs
+        height_cm: Height in cm (optional)
+        barbell_profile: Custom barbell profile (optional)
+    Returns:
+        AthleteCapabilities with provenance and confidence tracking
+    """
+    # Initialize provenance tracking
+    provenance = DataProvenance()
+
+    # Use inference engine for robust capability building
+    engine = InferenceEngine()
+
+    # Build 1RM capabilities with fallback
+    one_rm = engine.infer_1rm_from_relationships(benchmarks, provenance)
+
+    # Build gym skills with fallback
+    gym_cycle_times = engine.infer_gym_cycles(benchmarks, provenance)
+    gym_skills = {}
+
+    # Convert cycle times to GymSkill objects
+    for movement, cycle_time in gym_cycle_times.items():
+        # Get unbroken capacity (with fallbacks)
+        max_field_map = {
+            'pull_up': 'max_pullup',
+            'hspu': 'max_hspu',
+            'ttb': 'max_ttb',
+            'bmu': 'max_bmu',
+            'rmu': 'max_rmu',
+            'wb': 'max_wb',
+            'du': 'max_du'
+        }
+
+        if movement in max_field_map:
+            max_field = max_field_map[movement]
+            unbroken_cap = getattr(benchmarks, max_field, None)
+            if not unbroken_cap or unbroken_cap <= 0:
+                # Estimate from cycle time: faster cycle = higher capacity
+                unbroken_cap = max(5, int(30.0 / cycle_time))
+                provenance.add(f"gym.{movement}.unbroken", "inferred", 0.6)
+            else:
+                provenance.add(f"gym.{movement}.unbroken", "measured", 1.0)
+        else:
+            # Default unbroken capacities for other movements
+            defaults = {'burpee': 20, 'box_jump': 30, 'su': 200}
+            unbroken_cap = defaults.get(movement, 15)
+            provenance.add(f"gym.{movement}.unbroken", "default", 0.4)
+
+        gym_skills[movement.replace('_', '-')] = GymSkill(
+            cycle_s=cycle_time,
+            unbroken_cap=unbroken_cap
+        )
+
+    # Build cardio profiles with fallback
+    cardio_raw = engine.infer_cardio_profiles(benchmarks, provenance)
+    cardio_profiles = {}
+
+    for modality, params in cardio_raw.items():
+        if modality in ['bike', 'row']:
+            cardio_profiles[modality] = CPProfile(
+                cp=params['cp'],
+                w_prime=params['w_prime']
+            )
+        elif modality in ['run', 'swim']:
+            cardio_profiles[modality] = CPProfile(
+                cp=params['cs'],  # Store CS as cp for consistency
+                w_prime=params['d_prime']  # Store D' as w_prime
+            )
+
+    # Use provided barbell profile or default
+    if barbell_profile is None:
+        barbell_profile = BarbellProfile()
+
+    # Create initial capabilities
+    capabilities = AthleteCapabilities(
+        body_mass_kg=body_mass_kg,
+        height_cm=height_cm,
+        one_rm=one_rm,
+        barbell_profile=barbell_profile,
+        gym_skills=gym_skills,
+        cardio_profiles=cardio_profiles
+    )
+
+    # Add provenance and confidence data as attributes
+    capabilities.provenance = provenance
+    capabilities.completeness_score = provenance.get_completeness_score()
+
+    # Apply confidence-based conservative adjustments
+    capabilities = apply_confidence_based_adjustments(capabilities, provenance)
+
+    return capabilities
 
 
 def estimate_missing_lifts(capabilities: AthleteCapabilities) -> None:

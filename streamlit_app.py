@@ -79,10 +79,70 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 
+def get_dummy_benchmarks():
+    """Get realistic dummy data for testing the app."""
+    return UIBenchmarks(
+        # Weightlifting - intermediate level athlete
+        back_squat=120.0,
+        front_squat=100.0,
+        oh_squat=80.0,
+        strict_press=65.0,
+        push_press=75.0,
+        push_jerk=85.0,
+        bench=90.0,
+        deadlift=140.0,
+        clean=85.0,
+        snatch=65.0,
+        clean_and_jerk=85.0,
+
+        # Gymnastics max reps
+        max_pullup=15,
+        max_hspu=8,
+        max_ttb=12,
+        max_bmu=3,
+        max_rmu=2,
+        max_wb=30,
+        max_du=80,
+
+        # Gymnastics timed cycles
+        t_60du="1:45",
+        t_20pu="2:00",
+        t_20hspu="3:30",
+        t_20ttb="2:30",
+        t_10bmu="4:00",
+        t_5rmu="2:45",
+        t_20wb="1:45",
+        t_hswalk_15m="1:15",
+
+        # Cardio
+        ftp_bike_w=220,
+        row_500m="1:45",
+        row_2k="7:45",
+        row_5k="21:00",
+        run_400m="1:35",
+        run_1600m="7:00",
+        run_5k="24:30",
+
+        # CrossFit benchmarks
+        fran="5:30",
+        helen="12:45",
+        grace="4:15",
+        isabel="3:45",
+        amanda="8:30",
+        diane="6:15",
+        nancy="14:30",
+        mary="18:45",
+        angie="22:15",
+        murph_vest="52:30",
+        filthy_50="32:45"
+    )
+
+
 def initialize_session_state():
     """Initialize session state variables."""
     if 'benchmarks' not in st.session_state:
-        st.session_state.benchmarks = UIBenchmarks()
+        # Start with dummy data for easy testing
+        st.session_state.benchmarks = get_dummy_benchmarks()
     if 'athlete' not in st.session_state:
         st.session_state.athlete = None
     if 'context' not in st.session_state:
@@ -93,6 +153,8 @@ def initialize_session_state():
         st.session_state.simulation_results = []
     if 'current_workout' not in st.session_state:
         st.session_state.current_workout = None
+    if 'use_dummy_data' not in st.session_state:
+        st.session_state.use_dummy_data = True
 
 
 def create_benchmark_input_form():
@@ -100,7 +162,49 @@ def create_benchmark_input_form():
     st.subheader("📊 Athlete Benchmark Input")
     st.markdown("Input your real performance data to create an accurate digital twin.")
 
+    # Dummy data controls
+    col1, col2 = st.columns([3, 1])
+    with col1:
+        st.markdown("💡 **Tip**: The app is pre-loaded with dummy data for easy testing!")
+    with col2:
+        if st.button("🎯 Use My Data", help="Clear dummy data and enter your own"):
+            st.session_state.benchmarks = UIBenchmarks()
+            st.session_state.use_dummy_data = False
+            st.rerun()
+
+        if st.button("🧪 Reset to Dummy", help="Restore dummy data for testing"):
+            st.session_state.benchmarks = get_dummy_benchmarks()
+            st.session_state.use_dummy_data = True
+            st.rerun()
+
     benchmarks = st.session_state.benchmarks
+
+    # Show data completeness
+    if st.session_state.use_dummy_data:
+        st.info("📊 Currently using dummy data - perfect for testing all features!")
+    else:
+        # Count non-empty fields for completeness indicator
+        total_fields = 34  # Total benchmark fields
+        filled_fields = sum(1 for field in [
+            benchmarks.back_squat, benchmarks.front_squat, benchmarks.oh_squat,
+            benchmarks.strict_press, benchmarks.push_press, benchmarks.push_jerk,
+            benchmarks.bench, benchmarks.deadlift, benchmarks.clean, benchmarks.snatch,
+            benchmarks.clean_and_jerk, benchmarks.max_pullup, benchmarks.max_hspu,
+            benchmarks.max_ttb, benchmarks.max_bmu, benchmarks.max_rmu, benchmarks.max_wb,
+            benchmarks.max_du, benchmarks.t_60du, benchmarks.t_20pu, benchmarks.t_20hspu,
+            benchmarks.t_20ttb, benchmarks.t_10bmu, benchmarks.t_5rmu, benchmarks.t_20wb,
+            benchmarks.t_hswalk_15m, benchmarks.ftp_bike_w, benchmarks.row_500m,
+            benchmarks.row_2k, benchmarks.row_5k, benchmarks.run_400m, benchmarks.run_1600m,
+            benchmarks.run_5k, benchmarks.fran
+        ] if field and str(field).strip())
+
+        completeness = filled_fields / total_fields
+        if completeness > 0.7:
+            st.success(f"📈 Data completeness: {completeness:.0%} - Excellent!")
+        elif completeness > 0.4:
+            st.warning(f"📊 Data completeness: {completeness:.0%} - Good for testing")
+        else:
+            st.info(f"📉 Data completeness: {completeness:.0%} - Missing data will be inferred")
 
     # Basic info
     with st.expander("👤 Basic Information", expanded=True):
@@ -261,42 +365,53 @@ def create_benchmark_input_form():
     if st.button("🔄 Create Digital Twin", type="primary", use_container_width=True):
         errors = validate_benchmarks(benchmarks)
         if errors:
-            st.error("⚠️ Please correct the following errors:")
+            st.warning("⚠️ Found some data issues, but proceeding with intelligent fallbacks:")
             for field, error in errors.items():
-                st.error(f"• **{field.replace('_', ' ').title()}**: {error}")
-        else:
-            try:
-                with st.spinner("Creating your digital twin..."):
-                    # Build athlete capabilities
-                    capabilities = build_athlete_from_benchmarks(
-                        name=name,
-                        body_mass_kg=body_mass,
-                        benchmarks=benchmarks,
-                        height_cm=height if height > 0 else None
-                    )
+                st.warning(f"• **{field.replace('_', ' ').title()}**: {error}")
 
-                    # Estimate missing lifts
-                    estimate_missing_lifts(capabilities)
+        try:
+            with st.spinner("Creating your digital twin..."):
+                # Build athlete capabilities with robust fallback
+                from crossfit_twin.builder import build_athlete_from_benchmarks_robust
+                capabilities = build_athlete_from_benchmarks_robust(
+                    name=name,
+                    body_mass_kg=body_mass,
+                    benchmarks=benchmarks,
+                    height_cm=height if height > 0 else None
+                )
 
-                    # Create athlete
-                    athlete = AthleteV2(
-                        name=name,
-                        capabilities=capabilities,
-                        context=st.session_state.context,
-                        day_state=st.session_state.day_state
-                    )
+                # Estimate missing lifts (for legacy compatibility)
+                estimate_missing_lifts(capabilities)
 
-                    st.session_state.athlete = athlete
-                    st.session_state.benchmarks = benchmarks
+                # Create athlete
+                athlete = AthleteV2(
+                    name=name,
+                    capabilities=capabilities,
+                    context=st.session_state.context,
+                    day_state=st.session_state.day_state
+                )
 
-                st.success("✅ Digital twin created successfully!")
+                st.session_state.athlete = athlete
+                st.session_state.benchmarks = benchmarks
 
-                # Show athlete summary
-                show_athlete_summary(athlete)
+            st.success("✅ Digital twin created successfully!")
 
-            except Exception as e:
-                st.error(f"❌ Error creating athlete: {str(e)}")
-                st.info("💡 Try providing more benchmark data or check your inputs.")
+            # Show confidence score if available
+            if hasattr(capabilities, 'completeness_score'):
+                completeness = capabilities.completeness_score
+                if completeness > 0.8:
+                    st.success(f"🔬 Data confidence: {completeness:.0%} - Excellent!")
+                elif completeness > 0.6:
+                    st.info(f"🔬 Data confidence: {completeness:.0%} - Good with some inference")
+                else:
+                    st.warning(f"🔬 Data confidence: {completeness:.0%} - Heavy inference used")
+
+            # Show athlete summary
+            show_athlete_summary(athlete)
+
+        except Exception as e:
+            st.error(f"❌ Error creating athlete: {str(e)}")
+            st.info("💡 The robust fallback system should handle missing data automatically.")
 
 
 def show_athlete_summary(athlete):
@@ -321,15 +436,32 @@ def show_athlete_summary(athlete):
         with col4:
             st.metric("Intended RPE", summary['intended_rpe'])
 
+        # Provenance legend
+        if hasattr(athlete.capabilities, 'provenance'):
+            st.markdown("**📊 Data Quality:**")
+            st.markdown("🧪 Measured | 🧩 Inferred | 💤 Default | 📊 Population Prior")
+
         # Detailed capabilities
         col1, col2, col3 = st.columns(3)
 
         with col1:
             st.markdown("**🏋️ Strength (1RM):**")
             if athlete.capabilities.one_rm:
+                # Show provenance icons
+                provenance_icons = {"measured": "🧪", "inferred": "🧩", "default": "💤", "prior": "📊"}
+
                 for movement, weight in list(athlete.capabilities.one_rm.items())[:5]:
                     ratio = weight / athlete.capabilities.body_mass_kg
-                    st.text(f"{movement}: {weight:.0f}kg ({ratio:.1f}x)")
+
+                    # Get provenance if available
+                    icon = ""
+                    if hasattr(athlete.capabilities, 'provenance'):
+                        prov_key = f"1rm.{movement}"
+                        source = athlete.capabilities.provenance.source.get(prov_key, "unknown")
+                        icon = provenance_icons.get(source, "❓") + " "
+
+                    st.text(f"{icon}{movement}: {weight:.0f}kg ({ratio:.1f}x)")
+
                 if len(athlete.capabilities.one_rm) > 5:
                     st.text(f"... and {len(athlete.capabilities.one_rm) - 5} more")
             else:
