@@ -148,38 +148,52 @@ class StrategySolver:
         """Generate candidates for a specific strategy type."""
         candidates = []
 
-        # Get base rep schemes for each exercise
-        for round_idx, round_obj in enumerate(wod.rounds):
-            rep_schemes = []
-            transition_rests = []
+        # Generate rep schemes for ALL exercises across ALL rounds in the workout
+        all_rep_schemes = []
+        all_transition_rests = []
 
+        for round_idx, round_obj in enumerate(wod.rounds):
             for exercise_idx, exercise in enumerate(round_obj.exercises):
                 # Generate rep scheme variations
                 schemes = self._generate_rep_schemes(exercise, rpe_constraints, strategy_type)
 
                 if not schemes:
-                    continue
+                    # Use a default scheme if generation fails
+                    default_scheme = RepScheme(
+                        exercise_name=exercise.name,
+                        total_reps=exercise.reps,
+                        set_breakdown=[exercise.reps],  # Do all unbroken as fallback
+                        rest_after_sets=[],
+                        load_kg=exercise.weight_kg,
+                        target_cycle_time=2.0
+                    )
+                    all_rep_schemes.append(default_scheme)
+                else:
+                    # Take first scheme for now (could expand to combinations)
+                    all_rep_schemes.append(schemes[0])
 
-                # Take first scheme for now (could expand to combinations)
-                rep_schemes.append(schemes[0])
-
-                # Add transition rest
+                # Add transition rest between exercises (but not after last exercise in round)
                 if exercise_idx < len(round_obj.exercises) - 1:
-                    transition_rests.append(rpe_constraints.min_rest_between_movements)
+                    all_transition_rests.append(rpe_constraints.min_rest_between_movements)
 
-            if rep_schemes:
-                candidate = CandidateStrategy(
-                    strategy_type=strategy_type,
-                    rep_schemes=rep_schemes,
-                    transition_rests=transition_rests,
-                    rpe_policy=rpe_constraints
-                )
+            # Add rest between rounds (but not after last round)
+            if round_idx < len(wod.rounds) - 1:
+                all_transition_rests.append(wod.rest_between_rounds)
 
-                # Calculate risk score and estimated time
-                candidate.risk_score = self._calculate_risk_score(candidate)
-                candidate.estimated_time = candidate.get_total_estimated_time()
+        # Create one candidate for the entire workout
+        if all_rep_schemes:
+            candidate = CandidateStrategy(
+                strategy_type=strategy_type,
+                rep_schemes=all_rep_schemes,
+                transition_rests=all_transition_rests,
+                rpe_policy=rpe_constraints
+            )
 
-                candidates.append(candidate)
+            # Calculate risk score and estimated time
+            candidate.risk_score = self._calculate_risk_score(candidate)
+            candidate.estimated_time = candidate.get_total_estimated_time()
+
+            candidates.append(candidate)
 
         return candidates[:max_count]
 
@@ -433,9 +447,11 @@ class StrategySolver:
 
             # Risk from insufficient rest
             if scheme.rest_after_sets:
-                min_rest = min(rest for rest in scheme.rest_after_sets if rest > 0)
-                if min_rest < candidate.rpe_policy.min_rest_between_sets:
-                    risk_factors.append(0.2)  # Fixed risk for insufficient rest
+                positive_rests = [rest for rest in scheme.rest_after_sets if rest > 0]
+                if positive_rests:
+                    min_rest = min(positive_rests)
+                    if min_rest < candidate.rpe_policy.min_rest_between_sets:
+                        risk_factors.append(0.2)  # Fixed risk for insufficient rest
 
         # Combine risk factors
         return min(1.0, sum(risk_factors) / len(risk_factors) if risk_factors else 0.0)
@@ -568,8 +584,10 @@ class StrategySolver:
                     bottlenecks.append(f"High {scheme.exercise_name} load ({intensity:.0%} 1RM)")
 
             # Check for insufficient rest
-            if scheme.rest_after_sets and min(rest for rest in scheme.rest_after_sets if rest > 0) < 5:
-                bottlenecks.append(f"Short rest after {scheme.exercise_name}")
+            if scheme.rest_after_sets:
+                positive_rests = [rest for rest in scheme.rest_after_sets if rest > 0]
+                if positive_rests and min(positive_rests) < 5:
+                    bottlenecks.append(f"Short rest after {scheme.exercise_name}")
 
         return bottlenecks
 
