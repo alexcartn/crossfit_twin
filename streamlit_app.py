@@ -19,15 +19,13 @@ from crossfit_twin import (
     # V2 system
     UIBenchmarks, AthleteCapabilities, AthleteV2, ContextParams, DayState,
     build_athlete_from_benchmarks, validate_benchmarks, estimate_missing_lifts,
-    create_rpe_strategy, RPELevel, RPEStrategy,
-    FatigueManager, MovementPattern,
 
     # Advanced optimization features
     StrategySolver, OperationalAnalyzer, CloneOptimizer,
     _advanced_features_available,
 
     # Legacy system (for WODs)
-    WOD, Exercise, simulate
+    WOD, Exercise
 )
 from crossfit_twin.workout import FamousWODs
 
@@ -149,10 +147,6 @@ def initialize_session_state():
         st.session_state.context = ContextParams()
     if 'day_state' not in st.session_state:
         st.session_state.day_state = DayState()
-    if 'simulation_results' not in st.session_state:
-        st.session_state.simulation_results = []
-    if 'current_workout' not in st.session_state:
-        st.session_state.current_workout = None
     if 'use_dummy_data' not in st.session_state:
         st.session_state.use_dummy_data = True
 
@@ -434,7 +428,9 @@ def show_athlete_summary(athlete):
             else:
                 st.metric("Est. VO2 Max", "Not calculated")
         with col4:
-            st.metric("Intended RPE", summary['intended_rpe'])
+            daily_feeling = getattr(st.session_state.day_state, 'daily_feeling', 3)
+            feeling_emojis = {1: "😵", 2: "😕", 3: "😐", 4: "🙂", 5: "😃"}
+            st.metric("Daily Feeling", f"{feeling_emojis[daily_feeling]} {daily_feeling}/5")
 
         # Provenance legend
         if hasattr(athlete.capabilities, 'provenance'):
@@ -492,7 +488,7 @@ def show_athlete_summary(athlete):
 def create_context_day_form():
     """Create context and day state configuration."""
     st.subheader("🌡️ Environment & Daily State")
-    st.markdown("Configure environmental conditions and your daily readiness.")
+    st.markdown("Configure environmental conditions and how you're feeling today.")
 
     col1, col2 = st.columns(2)
 
@@ -515,7 +511,26 @@ def create_context_day_form():
         sleep_h = st.slider("Sleep Hours", 4.0, 12.0, st.session_state.day_state.sleep_h, 0.5)
         sleep_quality = st.slider("Sleep Quality (1-5)", 1, 5, st.session_state.day_state.sleep_quality)
         water_l = st.slider("Water Intake (L)", 0.0, 5.0, st.session_state.day_state.water_l, 0.1)
-        rpe_intended = st.slider("Intended RPE (0-10)", 0, 10, st.session_state.day_state.rpe_intended)
+
+        # New 1-5 feeling scale
+        st.markdown("**🎯 How are you feeling today?**")
+        feeling_labels = {
+            1: "😵 Très mauvais (mal dormi, courbatures, zéro énergie)",
+            2: "😕 Mauvais",
+            3: "😐 Moyen / neutre",
+            4: "🙂 Bon",
+            5: "😃 Excellent"
+        }
+
+        # Get current feeling or default to 3
+        current_feeling = getattr(st.session_state.day_state, 'daily_feeling', 3)
+        daily_feeling = st.radio(
+            "Select your feeling:",
+            options=[1, 2, 3, 4, 5],
+            index=current_feeling - 1,
+            format_func=lambda x: feeling_labels[x],
+            horizontal=False
+        )
 
         # Sleep guidance
         if sleep_h < 6:
@@ -536,16 +551,22 @@ def create_context_day_form():
         sleep_quality=sleep_quality,
         water_l=water_l,
         body_mass_kg=body_mass,
-        rpe_intended=rpe_intended
+        rpe_intended=7  # Default RPE for compatibility
     )
 
-    # Show RPE description
-    rpe_level = RPELevel.from_rpe(rpe_intended)
-    st.markdown(f"""
-    <div class="rpe-indicator">
-        <h4>RPE {rpe_intended}: {rpe_level.description}</h4>
-    </div>
-    """, unsafe_allow_html=True)
+    # Add the daily feeling to day state
+    st.session_state.day_state.daily_feeling = daily_feeling
+
+    # Show feeling description
+    feeling_descriptions = {
+        1: "Considérez un entraînement très léger ou du repos",
+        2: "Entraînement modéré recommandé",
+        3: "Entraînement normal possible",
+        4: "Vous pouvez vous pousser un peu plus",
+        5: "Parfait pour un entraînement intense!"
+    }
+
+    st.info(f"**Recommandation:** {feeling_descriptions[daily_feeling]}")
 
     # Update athlete if exists
     if st.session_state.athlete:
@@ -553,289 +574,6 @@ def create_context_day_form():
         st.session_state.athlete.day_state = st.session_state.day_state
 
 
-def create_rpe_strategy_display():
-    """Display RPE-based strategy information."""
-    if not st.session_state.athlete:
-        st.warning("⚠️ Please create an athlete first in the Athlete Builder.")
-        return
-
-    st.subheader("⚡ RPE-Based Strategy")
-    st.markdown("Your personalized workout strategy based on intended effort level.")
-
-    strategy = st.session_state.athlete.get_strategy_for_rpe()
-
-    # Strategy overview
-    st.markdown(f"### Current Strategy (RPE {strategy.constraints.target_rpe})")
-    st.markdown(strategy.get_strategy_description())
-
-    # Visual constraints
-    col1, col2, col3 = st.columns(3)
-
-    with col1:
-        st.markdown("**💪 Load Constraints**")
-        st.metric("Max Load", f"{strategy.constraints.max_load_pct:.0%}", help="Maximum % of 1RM to use")
-        st.metric("Preferred Load", f"{strategy.constraints.preferred_load_pct:.0%}", help="Target % for repeated efforts")
-
-    with col2:
-        st.markdown("**🎯 Set Size Constraints**")
-        st.metric("Max Set Size", f"{strategy.constraints.max_set_fraction:.0%}", help="% of max capacity to use")
-        st.metric("Preferred Set Size", f"{strategy.constraints.preferred_set_fraction:.0%}", help="Target % for sets")
-
-    with col3:
-        st.markdown("**⏰ Rest Constraints**")
-        st.metric("Min Rest (sets)", f"{strategy.constraints.min_rest_between_sets:.0f}s", help="Between sets")
-        st.metric("Min Rest (movements)", f"{strategy.constraints.min_rest_between_movements:.0f}s", help="Between exercises")
-
-    # Strategy comparison
-    with st.expander("📊 Compare RPE Levels", expanded=False):
-        rpe_data = []
-        for rpe in range(3, 11, 2):
-            temp_strategy = create_rpe_strategy(rpe)
-            rpe_data.append({
-                'RPE': rpe,
-                'Max Load': temp_strategy.constraints.max_load_pct,
-                'Set Size': temp_strategy.constraints.preferred_set_fraction,
-                'Rest (s)': temp_strategy.constraints.min_rest_between_sets
-            })
-
-        df = pd.DataFrame(rpe_data)
-
-        fig = go.Figure()
-        fig.add_trace(go.Scatter(x=df['RPE'], y=df['Max Load'], name='Max Load %', line=dict(color='red')))
-        fig.add_trace(go.Scatter(x=df['RPE'], y=df['Set Size'], name='Set Size %', line=dict(color='blue')))
-        fig.add_trace(go.Scatter(x=df['RPE'], y=df['Rest (s)'] / 100, name='Rest Time (×100s)', line=dict(color='green')))
-
-        fig.update_layout(
-            title="RPE Strategy Comparison",
-            xaxis_title="RPE Level",
-            yaxis_title="Constraint Value",
-            hovermode='x unified'
-        )
-
-        st.plotly_chart(fig, use_container_width=True)
-
-
-def create_fatigue_visualization():
-    """Visualize current fatigue state."""
-    if not st.session_state.athlete:
-        st.warning("⚠️ Please create an athlete first in the Athlete Builder.")
-        return
-
-    st.subheader("🔋 Fatigue Monitoring")
-    st.markdown("Real-time tracking of your digital twin's fatigue state.")
-
-    fatigue_summary = st.session_state.athlete.fatigue_manager.get_fatigue_summary()
-
-    # Overall fatigue status
-    global_fatigue = fatigue_summary.get('global', 0)
-    col1, col2, col3 = st.columns(3)
-
-    with col1:
-        st.metric("Global Fatigue", f"{global_fatigue:.3f}", help="Overall accumulated fatigue")
-    with col2:
-        fatigue_status = "Fresh" if global_fatigue < 0.1 else "Moderate" if global_fatigue < 0.5 else "High"
-        st.metric("Status", fatigue_status)
-    with col3:
-        if global_fatigue > 0:
-            estimated_recovery = min(300, global_fatigue * 600)  # Rough estimate
-            st.metric("Est. Recovery", f"{estimated_recovery:.0f}s")
-        else:
-            st.metric("Est. Recovery", "0s")
-
-    # Local fatigue breakdown
-    local_fatigue = {k.replace('local_', '').upper(): v for k, v in fatigue_summary.items() if k.startswith('local_')}
-
-    if local_fatigue:
-        st.markdown("**🎯 Local Muscle Fatigue by Movement Pattern:**")
-
-        # Create fatigue chart
-        fig = go.Figure(data=go.Bar(
-            x=list(local_fatigue.keys()),
-            y=list(local_fatigue.values()),
-            marker_color=['orange' if v > 0.1 else 'lightblue' for v in local_fatigue.values()]
-        ))
-
-        fig.update_layout(
-            title="Local Fatigue by Movement Pattern",
-            yaxis_title="Fatigue Level",
-            xaxis_title="Movement Pattern",
-            showlegend=False
-        )
-
-        st.plotly_chart(fig, use_container_width=True)
-
-        # Movement pattern guide
-        with st.expander("ℹ️ Movement Pattern Guide", expanded=False):
-            st.markdown("""
-            **Movement Patterns:**
-            - **PULL**: Pull-ups, rows, muscle-ups
-            - **PUSH**: Push-ups, HSPU, presses
-            - **SQUAT**: Squats, wall-balls, box-jumps
-            - **HINGE**: Deadlifts, KB swings, burpees
-            - **CORE**: Sit-ups, toes-to-bar, L-sits
-            - **GRIP**: Rope climbs, farmer's carries
-            """)
-
-    # Cardio fatigue (W'bal)
-    cardio_fatigue = {k.replace('cardio_', '').title(): v for k, v in fatigue_summary.items() if k.startswith('cardio_')}
-
-    if cardio_fatigue:
-        st.markdown("**🚴 Cardiovascular Fatigue (W'bal):**")
-        cardio_cols = st.columns(len(cardio_fatigue))
-        for i, (modality, fatigue) in enumerate(cardio_fatigue.items()):
-            with cardio_cols[i]:
-                st.metric(f"{modality} Fatigue", f"{fatigue:.3f}")
-
-    # Fatigue simulation
-    st.markdown("**🧪 Fatigue Simulation:**")
-    col1, col2 = st.columns(2)
-
-    with col1:
-        if st.button("Add 10 Pull-ups"):
-            st.session_state.athlete.add_work("pull-up", 10)
-            st.rerun()
-
-    with col2:
-        if st.button("Rest 60 seconds"):
-            st.session_state.athlete.recover(60.0)
-            st.rerun()
-
-
-def create_workout_simulation():
-    """Create workout simulation interface."""
-    if not st.session_state.athlete:
-        st.warning("⚠️ Please create an athlete first in the Athlete Builder.")
-        return
-
-    st.subheader("🏃 Workout Simulation")
-    st.markdown("Test your digital twin on famous CrossFit workouts.")
-
-    # Workout selection
-    col1, col2 = st.columns([2, 1])
-
-    with col1:
-        workout_type = st.selectbox(
-            "Choose workout type:",
-            ["Famous WODs", "Custom WOD"]
-        )
-
-    with col2:
-        if st.button("🔄 Reset Fatigue"):
-            st.session_state.athlete.reset_fatigue()
-            st.success("Fatigue reset!")
-
-    if workout_type == "Famous WODs":
-        wod_name = st.selectbox(
-            "Select WOD:",
-            ["Fran", "Helen", "Cindy", "Grace", "Isabel", "Amanda", "Diane"]
-        )
-
-        # Show WOD details
-        try:
-            wod = getattr(FamousWODs, wod_name.upper())()
-            with st.expander(f"📋 {wod_name} Details", expanded=True):
-                st.markdown(f"**Structure:** {wod.structure}")
-                st.markdown("**Movements:**")
-                for i, round_exercises in enumerate(wod.rounds):
-                    round_text = f"Round {i+1}: "
-                    exercises = []
-                    for exercise in round_exercises:
-                        if exercise.weight_kg:
-                            exercises.append(f"{exercise.reps} {exercise.name} @ {exercise.weight_kg}kg")
-                        else:
-                            exercises.append(f"{exercise.reps} {exercise.name}")
-                    st.text(round_text + ", ".join(exercises))
-        except:
-            st.error(f"Could not load {wod_name} details")
-
-        if st.button("🚀 Simulate Workout", type="primary"):
-            try:
-                with st.spinner(f"Simulating {wod_name}..."):
-                    # Get the workout
-                    wod = getattr(FamousWODs, wod_name.upper())()
-
-                    # Reset athlete fatigue
-                    st.session_state.athlete.reset_fatigue()
-
-                    # Update athlete context and day state
-                    st.session_state.athlete.context = st.session_state.context
-                    st.session_state.athlete.day_state = st.session_state.day_state
-
-                    # Get strategy
-                    strategy = st.session_state.athlete.get_strategy_for_rpe()
-
-                    # Simulate (using legacy simulator for now)
-                    result = simulate(wod, st.session_state.athlete, strategy)
-
-                st.success(f"✅ {wod_name} simulation completed!")
-
-                # Display results
-                col1, col2, col3, col4 = st.columns(4)
-                with col1:
-                    minutes = int(result.total_time // 60)
-                    seconds = int(result.total_time % 60)
-                    st.metric("Total Time", f"{minutes}:{seconds:02d}")
-                with col2:
-                    st.metric("Final Fatigue", f"{result.final_fatigue:.2f}")
-                with col3:
-                    st.metric("RPE Used", strategy.constraints.target_rpe)
-                with col4:
-                    st.metric("Strategy", "RPE-Based")
-
-                # Store result
-                st.session_state.simulation_results.append({
-                    'workout': wod_name,
-                    'time_seconds': result.total_time,
-                    'time_display': f"{minutes}:{seconds:02d}",
-                    'final_fatigue': result.final_fatigue,
-                    'rpe': strategy.constraints.target_rpe,
-                    'athlete': st.session_state.athlete.name,
-                    'conditions': f"{st.session_state.context.temperature_c}°C, {st.session_state.context.humidity_pct}% humidity"
-                })
-
-                # Show recent performance
-                if result.events:
-                    with st.expander("📊 Performance Timeline", expanded=False):
-                        events_df = pd.DataFrame([
-                            {
-                                'Time': event.timestamp,
-                                'Event': event.event_type,
-                                'Details': f"{event.exercise} - {event.details if hasattr(event, 'details') else ''}"
-                            }
-                            for event in result.events[-20:]  # Last 20 events
-                        ])
-                        st.dataframe(events_df, use_container_width=True)
-
-            except Exception as e:
-                st.error(f"❌ Simulation error: {str(e)}")
-                st.info("💡 This might be due to missing benchmark data or system compatibility.")
-
-    # Show simulation history
-    if st.session_state.simulation_results:
-        st.subheader("📊 Simulation History")
-
-        # Create results dataframe
-        df = pd.DataFrame(st.session_state.simulation_results)
-
-        # Display table
-        st.dataframe(df[[
-            'workout', 'time_display', 'rpe', 'final_fatigue', 'conditions'
-        ]].rename(columns={
-            'workout': 'Workout',
-            'time_display': 'Time',
-            'rpe': 'RPE',
-            'final_fatigue': 'Final Fatigue',
-            'conditions': 'Conditions'
-        }), use_container_width=True)
-
-        # Performance visualization
-        if len(df) > 1:
-            fig = px.bar(
-                df, x='workout', y='time_seconds', color='rpe',
-                title="Workout Performance Comparison",
-                labels={'time_seconds': 'Time (seconds)', 'workout': 'Workout'}
-            )
-            st.plotly_chart(fig, use_container_width=True)
 
 
 def create_strategy_solver_page():
@@ -878,8 +616,8 @@ def create_strategy_solver_page():
                 target_seconds = float(target_time_input)
 
             with st.spinner(f"Generating strategy for {target_workout} in {target_time_input}..."):
-                # Get the workout
-                wod = getattr(FamousWODs, target_workout.upper())()
+                # Get the workout (methods are lowercase)
+                wod = getattr(FamousWODs, target_workout.lower())()
 
                 # Create strategy solver
                 solver = StrategySolver(st.session_state.athlete, wod)
@@ -990,8 +728,8 @@ def create_operational_analysis_page():
     if st.button("🔍 Run Analysis", type="primary"):
         try:
             with st.spinner(f"Analyzing {workout_name} performance variations..."):
-                # Get the workout
-                wod = getattr(FamousWODs, workout_name.upper())()
+                # Get the workout (methods are lowercase)
+                wod = getattr(FamousWODs, workout_name.lower())()
 
                 # Create analyzer
                 analyzer = OperationalAnalyzer(st.session_state.athlete, wod)
@@ -1125,8 +863,8 @@ def create_clone_optimization_page():
                 target_seconds = float(target_time_input)
 
             with st.spinner(f"Optimizing {num_clones} clones for {workout_name}..."):
-                # Get the workout
-                wod = getattr(FamousWODs, workout_name.upper())()
+                # Get the workout (methods are lowercase)
+                wod = getattr(FamousWODs, workout_name.lower())()
 
                 # Create optimizer
                 optimizer = CloneOptimizer(st.session_state.athlete)
@@ -1224,15 +962,11 @@ def main():
     # Sidebar navigation
     with st.sidebar:
         st.markdown("## 🧭 Navigation")
-        # Build navigation list with conditional advanced features
+        # Build navigation list with only essential and advanced features
         nav_pages = [
             "🏠 Home",
             "👤 Athlete Builder",
-            "🌡️ Environment & State",
-            "⚡ RPE Strategy",
-            "🔋 Fatigue Monitor",
-            "🏃 Simulation",
-            "📊 Performance Analysis"
+            "🌡️ Environment & State"
         ]
 
         # Add advanced features if available
@@ -1250,7 +984,9 @@ def main():
             st.markdown("---")
             st.markdown("### 👤 Current Athlete")
             st.success(f"✅ {st.session_state.athlete.name}")
-            st.metric("RPE Intent", st.session_state.day_state.rpe_intended)
+            daily_feeling = getattr(st.session_state.day_state, 'daily_feeling', 3)
+            feeling_emojis = {1: "😵", 2: "😕", 3: "😐", 4: "🙂", 5: "😃"}
+            st.metric("Daily Feeling", f"{feeling_emojis[daily_feeling]} {daily_feeling}/5")
         else:
             st.markdown("---")
             st.markdown("### 👤 No Athlete")
@@ -1290,10 +1026,10 @@ def main():
         ### 🚀 Getting Started:
 
         1. **👤 Athlete Builder** → Input your real performance benchmarks
-        2. **🌡️ Environment & State** → Set conditions and daily readiness
-        3. **⚡ RPE Strategy** → Review your personalized strategy
-        4. **🏃 Simulation** → Test on famous CrossFit workouts
-        5. **🔋 Fatigue Monitor** → Track performance changes
+        2. **🌡️ Environment & State** → Set conditions and daily feeling (1-5 scale)
+        3. **🎯 Strategy Solver** → Generate optimal strategies for target times
+        4. **🔍 Operational Analysis** → What-if analysis for performance optimization
+        5. **🧬 Clone Optimization** → Robust strategy testing across parameter variations
 
         ---
 
@@ -1313,60 +1049,6 @@ def main():
 
     elif page == "🌡️ Environment & State":
         create_context_day_form()
-
-    elif page == "⚡ RPE Strategy":
-        create_rpe_strategy_display()
-
-    elif page == "🔋 Fatigue Monitor":
-        create_fatigue_visualization()
-
-    elif page == "🏃 Simulation":
-        create_workout_simulation()
-
-    elif page == "📊 Performance Analysis":
-        st.subheader("📊 Performance Analysis")
-
-        if st.session_state.simulation_results:
-            df = pd.DataFrame(st.session_state.simulation_results)
-
-            # Performance trends
-            if len(df) > 1:
-                st.markdown("### 📈 Performance Trends")
-
-                # Time comparison by workout
-                fig1 = px.bar(
-                    df, x='workout', y='time_seconds', color='rpe',
-                    title="Workout Times by RPE Level",
-                    labels={'time_seconds': 'Time (seconds)', 'workout': 'Workout'}
-                )
-                st.plotly_chart(fig1, use_container_width=True)
-
-                # Fatigue vs Performance
-                fig2 = px.scatter(
-                    df, x='final_fatigue', y='time_seconds', color='workout',
-                    title="Fatigue vs Performance",
-                    labels={'final_fatigue': 'Final Fatigue', 'time_seconds': 'Time (seconds)'}
-                )
-                st.plotly_chart(fig2, use_container_width=True)
-
-            # Summary statistics
-            st.markdown("### 📋 Summary Statistics")
-            col1, col2, col3 = st.columns(3)
-
-            with col1:
-                avg_time = df['time_seconds'].mean()
-                st.metric("Average Time", f"{int(avg_time//60)}:{int(avg_time%60):02d}")
-
-            with col2:
-                avg_rpe = df['rpe'].mean()
-                st.metric("Average RPE", f"{avg_rpe:.1f}")
-
-            with col3:
-                total_workouts = len(df)
-                st.metric("Total Workouts", total_workouts)
-
-        else:
-            st.info("🏃 Complete some simulations to see performance analysis!")
 
     elif page == "🎯 Strategy Solver":
         create_strategy_solver_page()
