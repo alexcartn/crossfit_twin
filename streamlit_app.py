@@ -620,13 +620,16 @@ def create_strategy_solver_page():
                 wod = getattr(FamousWODs, target_workout.lower())()
 
                 # Create strategy solver
-                solver = StrategySolver(st.session_state.athlete, wod)
+                solver = StrategySolver(st.session_state.athlete)
+
+                # Get current RPE strategy for constraints
+                rpe_strategy = st.session_state.athlete.get_strategy_for_rpe()
 
                 # Generate candidate strategies
-                candidates = solver.generate_candidate_strategies()
+                candidates = solver.generate_candidate_strategies(wod, rpe_strategy.constraints)
 
                 # Find strategies that meet target
-                solutions = solver.solve_for_time_target(target_seconds, tolerance_seconds=30)
+                solutions = solver.solve_for_time_target(wod, target_seconds, tolerance_seconds=30)
 
             if solutions:
                 st.success(f"✅ Found {len(solutions)} viable strategies!")
@@ -732,21 +735,22 @@ def create_operational_analysis_page():
                 wod = getattr(FamousWODs, workout_name.lower())()
 
                 # Create analyzer
-                analyzer = OperationalAnalyzer(st.session_state.athlete, wod)
+                analyzer = OperationalAnalyzer(st.session_state.athlete)
 
                 # Run analysis based on selected parameters
                 results = []
 
                 if analyze_cycle_times:
-                    cycle_result = analyzer.analyze_cycle_time_variation(cycle_variation / 100.0)
+                    cycle_result = analyzer.analyze_cycle_time_variation(wod, cycle_variation / 100.0)
                     results.append(("Cycle Time", cycle_result))
 
                 if analyze_transitions:
-                    transition_result = analyzer.analyze_transition_variation(transition_variation / 100.0)
+                    transition_result = analyzer.analyze_transition_variation(wod, transition_variation / 100.0)
                     results.append(("Transition", transition_result))
 
                 if analyze_microrest:
                     microrest_result = analyzer.analyze_microrest_strategy(
+                        wod,
                         rest_duration_s=microrest_duration,
                         rest_frequency_reps=microrest_frequency
                     )
